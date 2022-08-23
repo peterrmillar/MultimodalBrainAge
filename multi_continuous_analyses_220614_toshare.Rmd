@@ -1,0 +1,2798 @@
+---
+title: "fc_continuous_analyses_201009"
+author: "Pete Millar"
+date: "10/9/2020"
+output: html_document
+---
+#CLEAR & SET UP ENVIRONMENT
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include = FALSE, echo = FALSE, message = FALSE, warning = FALSE}
+#knitr::opts_chunk$set(echo = FALSE, collapse = TRUE, fig.show = 'hold')
+rm(list=ls())
+
+```
+
+```{r, include = FALSE, echo = FALSE, message = FALSE, warning = FALSE}
+
+pacman::p_load(mclust, MineICA, xtable, tidyverse, Metrics, reshape2, psy, irr, Hmisc, e1071, psych, corrplot, vioplot, doParallel, foreach, tidyr, DescTools, ggthemes, car, ggplot2, GGally, lsr, knitr, plyr, dplyr, gridExtra, boot, Rmisc, pwr, MASS, pander, broom, ez, markdown, effects, data.table, nlme, lme4, lmerTest, plotrix, ppcor, devtools, easyGgplot2, ggpubr, rstatix, heplots, dplyr, mgcv, tidymv)
+
+#, pcaMethods)
+#install_github("kassambara/easyGgplot2")
+
+```
+
+#COMPARE FITS
+##Load & Transform fit data
+```{r}
+multi_fits = read.csv("comparetesting_fc300vol101stacknorm_gpr_multistack4_1000runs_220506.csv")
+multi_fits$Sim = c(1:1000)
+
+#R2
+multi_fits_r2 = data.frame(multi_fits$Sim, multi_fits$Model, multi_fits$R2)
+colnames(multi_fits_r2) = c("Sim", "Model", "R2")
+multi_fits_r2_wide = spread(multi_fits_r2, Model, R2)
+
+#MAE
+multi_fits_mae = data.frame(multi_fits$Sim, multi_fits$Model, multi_fits$MAE)
+colnames(multi_fits_mae) = c("Sim", "Model", "MAE")
+multi_fits_mae_wide = spread(multi_fits_mae, Model, MAE)
+
+#RMSE
+multi_fits_rmse = data.frame(multi_fits$Sim, multi_fits$Model, multi_fits$RMSE)
+colnames(multi_fits_rmse) = c("Sim", "Model", "RMSE")
+multi_fits_rmse_wide = spread(multi_fits_rmse, Model, RMSE)
+
+multi_fits_fcvol = subset(multi_fits, subset = Model == "FC2-300ROI" | Model == "Vol3-CT+Sub" | Model == "VolFC6 GPR")
+
+multi_fits_fcvol$Model2 = recode_factor(multi_fits_fcvol$Model,  
+              'FC2-300ROI' = 'FC',
+              'Vol3-CT+Sub' = 'Vol',
+              'VolFC6 GPR' = 'Vol+FC')
+```
+
+##Pairwise comparisons
+###R2
+```{r}
+r2.aov = anova_test(data = multi_fits, dv = R2, wid = Sim, within = Model)
+get_anova_table(r2.aov)
+```
+```{r}
+r2.pwc <- multi_fits %>%
+  pairwise_t_test(
+    R2 ~ Model, paired = TRUE,
+    p.adjust.method = "bonferroni"
+    )
+r2.pwc
+```
+####Violin Plot
+
+```{r}
+compare_means(R2 ~ Model,  data = multi_fits, method = "t.test")
+my_comparisons_R2 <- list( 
+    c("FC", "Vol")
+  , c("FC", "Vol+FC")
+  , c("Vol", "Vol+FC")
+                        )
+
+```
+
+```{r}
+multifits_multi = subset(multi_fits, Model == "VolFC6 GPR")
+volfc_median = median(multifits_multi$R2)
+
+p<-ggplot(multi_fits_fcvol, aes(x=Model2, y=R2, fill=Model2)) +
+  labs(title="",x="", y = "R2") +
+  geom_violin(trim=FALSE, color = "black") + 
+  scale_fill_manual(breaks=c("FC", "Vol", "Vol+FC"),
+                              values=c("lightblue", "lightblue", "blue")) +
+  #geom_hline(yintercept = 0, linetype = "longdash") +
+  geom_hline(yintercept = volfc_median, linetype = "longdash") +
+  geom_boxplot(width=0.3, color = "black") +
+  #geom_jitter(shape=16, position=position_jitter(0.05)) +
+  stat_compare_means(comparisons = my_comparisons_R2, method = "t.test"
+                     , aes(label = ..p.signif..)
+                     )+ # Add pairwise comparisons p-value
+  #stat_compare_means(label.y = 50)+     # Add global p-value
+  #ylim(min(0.5), max(1.2)) + 
+  theme_classic(base_size = 15) +
+  theme(legend.position="none", plot.title = element_text(hjust = 0.5))
+p
+ggsave('multi_fits_R2_violin_220516.png', width = 3, height = 5, units = "in", dpi = 320)
+```
+
+
+###MAE
+```{r}
+mae.aov = anova_test(data = multi_fits, dv = MAE, wid = Sim, within = Model)
+get_anova_table(mae.aov)
+```
+```{r}
+mae.pwc <- multi_fits %>%
+  pairwise_t_test(
+    MAE ~ Model, paired = TRUE,
+    p.adjust.method = "bonferroni"
+    )
+mae.pwc
+```
+####Violin Plot
+
+```{r}
+compare_means(MAE ~ Model,  data = multi_fits, method = "t.test")
+my_comparisons_MAE <- list( 
+    c("Vol", "Vol+FC")
+  , c("FC", "Vol+FC")
+  , c("FC", "Vol")
+                        )
+
+```
+```{r}
+t.test(MAE ~ Model2, data = subset(multi_fits_fcvol, Model2 != "Vol+FC"))
+t.test(MAE ~ Model2, data = subset(multi_fits_fcvol, Model2 != "Vol"))
+t.test(MAE ~ Model2, data = subset(multi_fits_fcvol, Model2 != "FC"))
+```
+```{r}
+multifits_multi = subset(multi_fits, Model == "VolFC6 GPR")
+volfc_median = median(multifits_multi$MAE)
+
+p<-ggplot(multi_fits_fcvol, aes(x=Model2, y=MAE, fill=Model2)) +
+  labs(title="Model Comparison",x="", y = "MAE (in Bootstrapped Test Sets)") +
+  geom_violin(trim=FALSE, color = "black") + 
+  scale_fill_manual(breaks=c("FC", "Vol", "Vol+FC"),
+                              values=c("cyan1", "cyan3", "cyan4")) +
+  #geom_hline(yintercept = 0, linetype = "longdash") +
+  geom_hline(yintercept = volfc_median, linetype = "longdash") +
+  geom_boxplot(width=0.3, color = "black") +
+  #geom_jitter(shape=16, position=position_jitter(0.05)) +
+  stat_compare_means(comparisons = my_comparisons_MAE, method = "t.test"
+                     , aes(label = ..p.signif..)
+                     )+ # Add pairwise comparisons p-value
+  #stat_compare_means(label.y = 50)+     # Add global p-value
+  #ylim(min(0.5), max(1.2)) + 
+  theme_classic(base_size = 15) +
+  theme(legend.position="none", plot.title = element_text(hjust = 0.5))
+p
+ggsave('multi_fits_MAE_violin_220516.png', width = 3, height = 6, units = "in", dpi = 320)
+```
+###RMSE
+```{r}
+rmse.aov = anova_test(data = multi_fits, dv = RMSE, wid = Sim, within = Model)
+get_anova_table(rmse.aov)
+```
+```{r}
+rmse.pwc <- multi_fits %>%
+  pairwise_t_test(
+    RMSE ~ Model, paired = TRUE,
+    p.adjust.method = "bonferroni"
+    )
+rmse.pwc
+```
+####Violin Plot
+
+```{r}
+compare_means(RMSE ~ Model,  data = multi_fits, method = "t.test")
+my_comparisons_RMSE <- list( 
+    c("Vol", "Vol+FC")
+  , c("FC", "Vol+FC")
+  , c("FC", "Vol")
+                        )
+
+```
+
+```{r}
+multifits_multi = subset(multi_fits, Model == "VolFC6 GPR")
+volfc_median = median(multifits_multi$RMSE)
+
+p<-ggplot(multi_fits_fcvol, aes(x=Model2, y=RMSE, fill=Model2)) +
+  labs(title="",x="", y = "RMSE") +
+  geom_violin(trim=FALSE, color = "black") + 
+  scale_fill_manual(breaks=c("FC", "Vol", "Vol+FC"),
+                              values=c("lightblue", "lightblue", "blue")) +
+  #geom_hline(yintercept = 0, linetype = "longdash") +
+  geom_hline(yintercept = volfc_median, linetype = "longdash") +
+  geom_boxplot(width=0.3, color = "black") +
+  #geom_jitter(shape=16, position=position_jitter(0.05)) +
+  stat_compare_means(comparisons = my_comparisons_RMSE, method = "t.test"
+                     , aes(label = ..p.signif..)
+                     )+ # Add pairwise comparisons p-value
+  #stat_compare_means(label.y = 50)+     # Add global p-value
+  #ylim(min(0.5), max(1.2)) + 
+  theme_classic(base_size = 15) +
+  theme(legend.position="none", plot.title = element_text(hjust = 0.5))
+p
+ggsave('multi_fits_RMSE_violin_220516.png', width = 3, height = 5, units = "in", dpi = 320)
+```
+
+#DATA INSPECTION
+##Sample Size & Exclusions (Volumetric Sample)
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+#multiage_full = read.csv("multiage_analyses_201009.csv")
+#multiage_full = read.csv("fcage_analyses_210122.csv")
+#multiage_full = read.csv("fcage_analyses_210222.csv")
+#multiage_full = read.csv("fcage_analyses_210308.csv")
+#multiage_full = read.csv("multiage_analyses_211222.csv")
+#multiage_full = read.csv("multiage_analyses_220516.csv")
+multiage_full = read.csv("multiage_analyses_220507.csv")
+
+
+#multiage_train_full = subset(multiage_full, ab_neg_train == "1")
+#multiage_train_sample = subset(multiage_train_full, ab_neg_test == 0)
+#multiage_train_sample = subset(multiage_train_sample, ab_pos_test == 0)
+#multiage_train_sample = subset(multiage_train_sample, cdr_test == 0)
+#multiage_train = multiage_train_sample
+multiage_train = subset(multiage_full, group_multi == "train")
+
+multiage_val = subset(multiage_full, group_multi == "test")
+
+multiage_train_val = subset(multiage_full, (group_multi == "train" | group_multi == "test"))
+
+multiage_train_val$Group = recode_factor(multiage_train_val$group_multi, 
+              'train' = 'Training Set',
+              'test' = 'Testing Set')
+#multiage_test = subset(multiage_full, age_pred_multi != 'NA')
+multiage_test = subset(multiage_full, (group_multi == 0 | group_multi == 1 | group_multi == 2))
+
+multiage_ad = subset(multiage_test, diag_group_ab4240 != "Non-AD Dementia")
+
+#multiage_out = subset(multiage_test, error > -25)
+
+#multiage_out = subset(multiage_ad, error_orig > mean(multiage_ad$error_orig)-3*sd(multiage_ad$error_orig))
+#multiage_out = subset(multiage_out, error_orig < mean(multiage_ad$error_orig)+3*sd(multiage_ad$error_orig))
+
+multiage = multiage_ad
+
+multiage_out = subset(multiage_ad, agegapreg_fc2 > mean(multiage_ad$agegapreg_fc2)-3*sd(multiage_ad$agegapreg_fc2))
+multiage_out = subset(multiage_out, agegapreg_fc2 < mean(multiage_ad$agegapreg_fc2)+3*sd(multiage_ad$agegapreg_fc2))
+multiage_out = subset(multiage_out, agegapreg_vol2 > mean(multiage_ad$agegapreg_vol2)-3*sd(multiage_ad$agegapreg_vol2))
+multiage_out = subset(multiage_out, agegapreg_vol2 < mean(multiage_ad$agegapreg_vol2)+3*sd(multiage_ad$agegapreg_vol2))
+multiage_out = subset(multiage_out, agegapreg_multi > mean(multiage_ad$agegapreg_multi)-3*sd(multiage_ad$agegapreg_multi))
+multiage_out = subset(multiage_out, agegapreg_multi < mean(multiage_ad$agegapreg_multi)+3*sd(multiage_ad$agegapreg_multi))
+
+#multiage = multiage_full
+
+multiage = multiage_out
+
+multiage$Group = recode_factor(multiage$group_multi, 
+              '0' = 'CN A-',
+              '1' = 'CN A+',
+              '2' = 'CI')
+
+multiage$Group_sev = recode_factor(multiage$group_multi, 
+              '0' = 'Amyloid - Controls',
+              '1' = 'Preclinical AD',
+              '2' = 'Symptomatic AD CDR 0.5')
+levels(multiage$Group_sev) = c(levels(multiage$Group_sev), 'Symptomatic AD CDR 1+')
+multiage$Group_sev[multiage$CDR > 0.5] = 'Symptomatic AD CDR 1+'
+#multiage$Group_sev
+
+
+multiage$CDRGroup = recode_factor(multiage$CDR_bin,
+              '0' = 'CDR = 0',
+              '1' = 'CDR > 0')
+
+multiage$CDR_sev = recode_factor(multiage$CDR_bin,
+              '0' = 'CDR = 0',
+              '1' = 'CDR = 0.5')
+levels(multiage$CDR_sev) = c(levels(multiage$CDR_sev), 'CDR > 0.5')
+multiage$CDR_sev[multiage$CDR > 0.5] = 'CDR > 0.5'
+#multiage$CDR_sev
+
+multiage$APOEGroup = recode_factor((multiage$APOE_Pos),
+                                '0' = 'E4 -',
+                                '1' = 'E4 +')
+
+multiage$Sex_f = recode_factor(multiage$Sex, 
+              '1' = 'Male',
+              '2' = 'Female')
+
+multiage$Race_f = recode_factor(multiage$Race,
+              '2' = 'Asian',
+              '4' = 'Black',
+              '5' = 'White')
+
+multiage$Race_w = recode_factor(multiage$Race,
+              '2' = 1,
+              '4' = 1,
+              '5' = 0)
+
+```
+
+
+
+#Multi-BAG ANALYSES
+##Compute residuals
+```{r}
+multiage = subset(multiage, age_pred_multi != 'NA')
+multiage$error_multi = lm(multiage$age_pred_multi ~ multiage$Age)$residuals
+multiage$agegapreg_multi = lm(multiage$agegap_multi ~ multiage$Age)$residuals
+plot(multiage$error_multi, multiage$agegapreg_multi)
+cor.test(multiage$error_multi, multiage$agegapreg_multi)
+
+multiage_pre = subset(multiage, CDR == 0)
+
+
+```
+```{r}
+
+multiage$error_multi = lm(multiage$age_pred_multi ~ multiage$Age)$residuals
+multiage$error2_multi = lm(multiage$Age ~ multiage$age_pred_multi)$residuals
+plot(multiage$error_multi, multiage$error2_multi)
+cor.test(multiage$error_multi, multiage$error2_multi)
+
+```
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+
+
+hist((multiage$error_multi), breaks = 50,
+     xlab = "Residual Predicted Age",
+     main = "Distribution of Residual Vol+FC-BAG")
+abline(v=median(multiage$error_multi), col = 'blue')
+abline(v=mean(multiage$error_multi)+(2*sd(multiage$error_multi)), col = 'yellow')
+abline(v=mean(multiage$error_multi)+(3*sd(multiage$error_multi)), col = 'orange')
+abline(v=mean(multiage$error_multi)+(4*sd(multiage$error_multi)), col = 'red')
+abline(v=mean(multiage$error_multi)+(5*sd(multiage$error_multi)), col = 'red')
+abline(v=mean(multiage$error_multi)+(6*sd(multiage$error_multi)), col = 'red')
+abline(v=mean(multiage$error_multi)-(2*sd(multiage$error_multi)), col = 'yellow')
+abline(v=mean(multiage$error_multi)-(3*sd(multiage$error_multi)), col = 'orange')
+abline(v=mean(multiage$error_multi)-(4*sd(multiage$error_multi)), col = 'red')
+abline(v=mean(multiage$error_multi)-(5*sd(multiage$error_multi)), col = 'red')
+abline(v=mean(multiage$error_multi)-(6*sd(multiage$error_multi)), col = 'red')
+
+#max(multiage$error_multi)
+#(max(multiage$error_multi) - mean(multiage$error_multi))/sd(multiage$error_multi)
+
+```
+##Remove Outliers
+```{r}
+#multiage = subset(multiage, error_multi > -24)
+multiage = subset(multiage, error_multi > mean(multiage$error_multi)-3*sd(multiage$error_multi))
+multiage = subset(multiage, error_multi < mean(multiage$error_multi)+3*sd(multiage$error_multi))
+```
+
+#Comparison of BAG Estimates
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+multiage_bags = as.data.frame(cbind(multiage$age_true_vol,
+                                 multiage$age_pred_orig, multiage$agegapreg_orig, 
+                                 multiage$age_pred_fc2, multiage$agegapreg_fc2,
+                                 multiage$age_pred_vol, multiage$agegapreg_vol,
+                                 multiage$age_pred_vol2, multiage$agegapreg_vol2,
+                                  multiage$age_pred_multi, multiage$agegapreg_multi
+                                 ))
+colnames(multiage_bags) = c("true_age"
+                            , "pred_fc", "gap_fc" 
+                         , "pred_fc2", "gap_fc2"
+                         , "pred_vol", "gap_vol"
+                         , "pred_vol2", "gap_vol2"
+                         , "pred_multi", "gap_multi"
+                         #, "ATT_INC_ACC"
+                         )
+
+multiage_bagmat=cor(multiage_bags,method="p", use = 'pairwise.complete.obs')
+multiage_bagmat
+
+```
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+rcorr(as.matrix(multiage_bags))
+```
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+#png("multiage_amyloid_cormat.png", height = 600, width = 600)
+pairs.panels(multiage_bags, method = 'pearson',stars = T)
+#dev.off()
+
+```
+
+#FC vs Vol-BAG
+##All Groups
+```{r}
+yscale = multiage$age_pred_vol
+
+g = ggplot(multiage, aes(x = agegapreg_vol, y = agegapreg_orig))
+g + geom_point(aes(color = Group)) +
+  labs(title="FC vs. Vol-BAG",x="Residual Vol-BAG", y = "Residual FC-Predicted Age") +
+  geom_smooth(aes(color = Group, fill = Group), method = lm) + 
+  scale_color_manual(values = c("blue", "forestgreen", "red")) +
+  scale_fill_manual(values = c("blue", "forestgreen", "red")) +
+  geom_hline(yintercept = 0, linetype = "longdash") +
+  geom_vline(xintercept = 0, linetype = "longdash") +
+  #xlim(min(c(multiage$Age, yscale)), max(c(multiage$Age, yscale))) + 
+  #ylim(min(c(multiage$Age, yscale)), max(c(multiage$Age, yscale))) + 
+  theme_bw(base_size = 15) +
+  theme(legend.position=c(.2, .88), plot.title = element_text(hjust = 0.5), legend.title = element_blank())
+ggsave('fcage_v_volage_harm_220516.png', width = 6, height = 6, units = "in", dpi = 320)
+
+```
+```{r}
+cor.test(multiage$agegapreg_orig, multiage$agegapreg_vol)
+```
+```{r}
+fc_vs_multi_lm = lm(agegapreg_orig ~ #lumi_ab42_dr17
+                     agegapreg_vol*group_multi
+                   , data = multiage)
+summary(fc_vs_multi_lm)
+```
+
+#fc2 vs Vol2-BAG
+##All Groups
+```{r}
+yscale = multiage$age_pred_vol2
+
+g = ggplot(multiage, aes(x = agegapreg_vol2, y = agegapreg_fc2))
+g + geom_point(aes(color = Group)) +
+  labs(title="FC vs. Vol-BAG",x="Residual Vol-BAG", y = "Residual FC-BAG") +
+  geom_smooth(aes(color = Group, fill = Group), method = lm) + 
+  geom_smooth(col = 'black', method = lm, linetype = 'dashed') + 
+  scale_color_manual(values = c("blue", "forestgreen", "red")) +
+  scale_fill_manual(values = c("blue", "forestgreen", "red")) +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  geom_vline(xintercept = 0, linetype = "dotted") +
+  #xlim(min(c(multiage$Age, yscale)), max(c(multiage$Age, yscale))) + 
+  #ylim(min(c(multiage$Age, yscale)), max(c(multiage$Age, yscale))) + 
+  theme_bw(base_size = 15) +
+  theme(legend.position=c(.11, .9), plot.title = element_text(hjust = 0.5), legend.title = element_blank(), legend.key = element_blank(), legend.background=element_blank())
+ggsave('fc2age_v_vol2age_harm_test_220516.png', width = 6, height = 6, units = "in", dpi = 320)
+
+```
+```{r}
+cor.test(multiage$agegapreg_fc2, multiage$agegapreg_vol2)
+```
+```{r}
+fc_vs_multi_lm = lm(agegapreg_fc2 ~ #lumi_ab42_dr17
+                     agegapreg_vol2*Group
+                   , data = multiage)
+summary(fc_vs_multi_lm)
+```
+
+##Train
+```{r}
+yscale = multiage_train_val$age_pred_vol
+
+g = ggplot(multiage_train_val, aes(x = agegapreg_vol2, y = agegapreg_fc2))
+g + geom_point(aes(color = Group)) +
+  labs(title="FC vs. Vol-BAG",x="Residual Vol-BAG", y = "Residual FC-BAG") +
+  geom_smooth(aes(color = Group, fill = Group), method = lm) + 
+  geom_smooth(col = 'black', method = lm, linetype = 'dashed') + 
+  scale_color_manual(values = c("cyan3", "magenta3")) +
+  scale_fill_manual(values = c("cyan3", "magenta3")) +
+  geom_hline(yintercept = 0, linetype = "dotted") +
+  geom_vline(xintercept = 0, linetype = "dotted") +
+  #xlim(min(c(multiage_train_val$Age, yscale)), max(c(multiage_train_val$Age, yscale))) + 
+  #ylim(min(c(multiage_train_val$Age, yscale)), max(c(multiage_train_val$Age, yscale))) + 
+  theme_bw(base_size = 15) +
+  theme(legend.position=c(.14, .94), plot.title = element_text(hjust = 0.5), legend.title = element_blank(), legend.key = element_blank(), legend.background=element_blank())
+ggsave('fc2age_v_vol2age_harm_train_220516.png', width = 6, height = 6, units = "in", dpi = 320)
+
+```
+```{r}
+cor.test(multiage_train_val$agegapreg_fc2, multiage_train_val$agegapreg_vol2)
+```
+```{r}
+fc_vs_multi_lm = lm(agegapreg_fc2 ~ #lumi_ab42_dr17
+                     agegapreg_vol2*group_multi
+                   , data = multiage_train_val)
+summary(fc_vs_multi_lm)
+```
+
+
+#Tau Positivity Groups
+
+##GMM
+```{r}
+multiage$ptau_ab40_ratio = multiage$lumi_ptau_dr17 / multiage$lumi_ab40_dr17
+hist(multiage$lumi_ptau_dr17)
+
+multiage_csf = subset(multiage, lumi_ptau_dr17 != 'NA')
+fit = Mclust(multiage_csf$ptau_ab40_ratio, G = 1:2, model = "V")
+fit$G
+
+  plot(fit$classification ~ multiage_csf$ptau_ab40_ratio
+       , xlab = "CSF"
+       , ylab = "Classification"
+  )
+  abline(h = 1.5, col = 'black')
+
+  plot(fit$z[,2] ~ multiage_csf$ptau_ab40_ratio
+       , xlab = "CSF"
+       , ylab = "TPP"
+  )
+  abline(h = 0.5, col = 'black')
+
+  
+  multiage_csf$tau_pos_gmm = fit$classification
+  
+  multiage_csf$at_pos_gmm[multiage_csf$group_multi == 0 & multiage_csf$tau_pos_gmm == 1] = "A-T-"
+multiage_csf$at_pos_gmm[multiage_csf$group_multi == 1 & multiage_csf$tau_pos_gmm == 1] = "A+T-"
+multiage_csf$at_pos_gmm[multiage_csf$group_multi == 1 & multiage_csf$tau_pos_gmm == 2] = "A+T+"
+  
+multiage_csf$at_pos_gmm[multiage_csf$Group == "Symptomatic AD"] = "CDR > 0"
+
+
+  multiage_csf$at_pos_gmm = as.factor(multiage_csf$at_pos_gmm)
+
+  levels(multiage_csf$at_pos_gmm)
+  
+  multiage_sym = subset(multiage, (Group == "CI"))
+multiage_sym = multiage_sym[is.na(multiage_sym$lumi_ptau_dr17), ]
+multiage_sym$at_pos_gmm = "CDR > 0"
+multiage_sym$tau_pos_gmm = 2
+multiage_atn = rbind(multiage_sym, multiage_csf)
+```
+
+
+```{r}
+multiage_aptn_gmm = subset(multiage_atn, at_pos_gmm == 'A+T-')
+multiage_aptp_gmm = subset(multiage_atn, at_pos_gmm == 'A+T+')
+multiage_antn_gmm = subset(multiage_atn, at_pos_gmm == 'A-T-')
+multiage_atsym_gmm = subset(multiage_atn, at_pos_gmm == 'CDR > 0')
+```
+
+Median split
+```{r}
+#multiage$tau_pos[multiage$lumi_ptau_dr17 < ptau_cutoff] = 0
+#multiage$tau_pos[multiage$lumi_ptau_dr17 >= ptau_cutoff] = 1
+
+#multiage$at_pos[multiage$group_multi == 0 & multiage$tau_pos == 0] = "A-T-"
+#multiage$at_pos[multiage$group_multi == 1 & multiage$tau_pos == 0] = "A+T-"
+#multiage$at_pos[multiage$group_multi == 1 & multiage$tau_pos == 1] = "A+T+"
+
+#multiage$at_pos[multiage$Group == "Symptomatic AD"] = "Symptomatic AD"
+```
+#DEMOGRAPHICS
+
+```{r, echo = TRUE, message = FALSE, warning = FALSE}
+#multiage = multiage_age
+
+multiage_train_adrc = subset(multiage_train, sample == "ADRC")
+multiage_train_dian = subset(multiage_train, sample == "DIAN")
+multiage_train_hiv = subset(multiage_train, sample == "HIV")
+
+multiage_test_adrc = subset(multiage_val, sample == "ADRC")
+multiage_test_dian = subset(multiage_val, sample == "DIAN")
+multiage_test_hiv = subset(multiage_val, sample == "HIV")
+
+multiage_abneg = subset(multiage, group_multi == 0)
+multiage_abpos = subset(multiage, group_multi == 1)
+multiage_cdr051 = subset(multiage, group_multi == 2)
+```
+
+###train Train Table
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+#multiage_train$sex_bin = (recode_factor(multiage_train$Sex, 
+#              'female' = 1,
+#              'male' = 0))
+
+multiage_train_demographics = as.data.frame(cbind(multiage_train$Age
+                        , as.numeric(multiage_train$Sex)
+                        , multiage_train$Edu
+                        , multiage_train$Race
+                        , multiage_train$Mean_FD_Pre
+                        , multiage_train$PCT_Retained
+                        , multiage_train$MMSE
+                        ))
+colnames(multiage_train_demographics) = c("Age (years)"
+                            , "Sex (% Female)"
+                            , "Education (years)"
+                            , "Race"
+                            , "Mean Head Motion (FD)"
+                            , "% Frames Retained"
+                            , "MMSE"
+                            )
+multiage_train_demo_table_493 = describe(multiage_train_demographics)
+multiage_train_demo_table_493
+write.csv(multiage_train_demo_table_493, "multiage_train_demo_391.csv")
+
+length(which(multiage_train$Sex==2))
+length(which(multiage_train$Sex==1))
+
+as.factor(multiage_train$Race)
+length(which(multiage_train$Race=="5")) / length(which(multiage_train$Race!='NA')) #white
+length(which(multiage_train$Race=="4")) #black
+length(which(multiage_train$Race=="3")) #Asian
+length(which(multiage_train$Race=="2")) #American Indian
+length(which(multiage_train$Race=="1")) #multiracial
+
+length(which(multiage_train$APOE_Pos==0))
+length(which(multiage_train$APOE_Pos==1))
+
+as.factor(multiage_train$scanner)
+
+```
+
+###train_hiv Train Table
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+#multiage_train_hiv$sex_bin = (recode_factor(multiage_train_hiv$Sex, 
+#              'female' = 1,
+#              'male' = 0))
+
+multiage_train_hiv_demographics = as.data.frame(cbind(multiage_train_hiv$Age
+                        , as.numeric(multiage_train_hiv$Sex)
+                        , multiage_train_hiv$Edu
+                        , multiage_train_hiv$Race
+                        , multiage_train_hiv$Mean_FD_Pre
+                        , multiage_train_hiv$PCT_Retained
+                        , multiage_train_hiv$MMSE
+                        ))
+colnames(multiage_train_hiv_demographics) = c("Age (years)"
+                            , "Sex (% Female)"
+                            , "Education (years)"
+                            , "Race"
+                            , "Mean Head Motion (FD)"
+                            , "% Frames Retained"
+                            , "MMSE"
+                            )
+multiage_train_hiv_demo_table_166 = describe(multiage_train_hiv_demographics)
+multiage_train_hiv_demo_table_166
+write.csv(multiage_train_hiv_demo_table_166, "multiage_train_hiv_demo_137.csv")
+
+length(which(multiage_train_hiv$Sex==2))
+length(which(multiage_train_hiv$Sex==1))
+
+as.factor(multiage_train_hiv$Race)
+length(which(multiage_train_hiv$Race=="5")) / length(which(multiage_train_hiv$Race!='NA')) #white
+length(which(multiage_train_hiv$Race=="4")) #black
+length(which(multiage_train_hiv$Race=="3")) #Asian
+length(which(multiage_train_hiv$Race=="2")) #American Indian
+length(which(multiage_train_hiv$Race=="1")) #multiracial
+
+length(which(multiage_train_hiv$APOE_Pos==0))
+length(which(multiage_train_hiv$APOE_Pos==1))
+
+as.factor(multiage_train_hiv$scanner)
+
+```
+
+###train_dian Train Table
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+#multiage_train_dian$sex_bin = (recode_factor(multiage_train_dian$Sex, 
+#              'female' = 1,
+#              'male' = 0))
+
+multiage_train_dian_demographics = as.data.frame(cbind(multiage_train_dian$Age
+                        , as.numeric(multiage_train_dian$Sex)
+                        , multiage_train_dian$Edu
+                        , multiage_train_dian$Race
+                        , multiage_train_dian$Mean_FD_Pre
+                        , multiage_train_dian$PCT_Retained
+                        , multiage_train_dian$MMSE
+                        ))
+colnames(multiage_train_dian_demographics) = c("Age (years)"
+                            , "Sex (% Female)"
+                            , "Education (years)"
+                            , "Race"
+                            , "Mean Head Motion (FD)"
+                            , "% Frames Retained"
+                            , "MMSE"
+                            )
+multiage_train_dian_demo_table_166 = describe(multiage_train_dian_demographics)
+multiage_train_dian_demo_table_166
+write.csv(multiage_train_dian_demo_table_166, "multiage_train_dian_demo_120.csv")
+
+length(which(multiage_train_dian$Sex==2))
+length(which(multiage_train_dian$Sex==1))
+
+
+as.factor(multiage_train_dian$Race)
+length(which(multiage_train_dian$Race=="5")) / length(which(multiage_train_dian$Race!='NA')) #white
+length(which(multiage_train_dian$Race=="4")) #black
+length(which(multiage_train_dian$Race=="3")) #Asian
+length(which(multiage_train_dian$Race=="2")) #American Indian
+length(which(multiage_train_dian$Race=="1")) #multiracial
+
+length(which(multiage_train_dian$APOE_Pos==0))
+length(which(multiage_train_dian$APOE_Pos==1))
+
+#pib - both
+length(which(multiage_train_dian$pib_dian!='NA')) - length(which(multiage_train_dian$pib_dian!='NA' & multiage_train_dian$ab42_dian!='NA'))
+#lumi - both
+length(which(multiage_train_dian$ab42_dian!='NA')) - length(which(multiage_train_dian$pib_dian!='NA' & multiage_train_dian$ab42_dian!='NA'))
+#both
+length(which(multiage_train_dian$pib_dian!='NA' & multiage_train_dian$ab42_dian!='NA'))
+
+as.factor(multiage_train_dian$scanner)
+
+```
+
+###train_adrc Train Table
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+#multiage_train_adrc$sex_bin = (recode_factor(multiage_train_adrc$Sex, 
+#              'female' = 1,
+#              'male' = 0))
+
+multiage_train_adrc_demographics = as.data.frame(cbind(multiage_train_adrc$Age
+                        , as.numeric(multiage_train_adrc$Sex)
+                        , multiage_train_adrc$Edu
+                        , multiage_train_adrc$Race
+                        , multiage_train_adrc$Mean_FD_Pre
+                        , multiage_train_adrc$PCT_Retained
+                        , multiage_train_adrc$MMSE
+                        ))
+colnames(multiage_train_adrc_demographics) = c("Age (years)"
+                            , "Sex (% Female)"
+                            , "Education (years)"
+                            , "Race"
+                            , "Mean Head Motion (FD)"
+                            , "% Frames Retained"
+                            , "MMSE"
+                            )
+multiage_train_adrc_demo_table_166 = describe(multiage_train_adrc_demographics)
+multiage_train_adrc_demo_table_166
+write.csv(multiage_train_adrc_demo_table_166, "multiage_train_adrc_demo_134.csv")
+
+length(which(multiage_train_adrc$Sex==2))
+length(which(multiage_train_adrc$Sex==1))
+
+as.factor(multiage_train_adrc$Race)
+length(which(multiage_train_adrc$Race=="5")) / length(which(multiage_train_adrc$Race!='NA')) #white
+length(which(multiage_train_adrc$Race=="4")) #black
+length(which(multiage_train_adrc$Race=="3")) 
+length(which(multiage_train_adrc$Race=="2")) #Asian
+length(which(multiage_train_adrc$Race=="1")) 
+
+length(which(multiage_train_adrc$APOE_Pos==0))
+length(which(multiage_train_adrc$APOE_Pos==1))
+
+
+#pib - both
+length(which(multiage_train_adrc$PIB_fSUVR_rsf_TOT_CORTMEAN_dr17!='NA')) - length(which(multiage_train_adrc$PIB_fSUVR_rsf_TOT_CORTMEAN_dr17!='NA' & multiage_train_adrc$lumi_ab42_dr17!='NA'))# & multiage_train_adrc$lumi_ab42_dr17=='NA'))
+#lumi - both
+length(which(multiage_train_adrc$lumi_ab42_dr17!='NA')) - length(which(multiage_train_adrc$PIB_fSUVR_rsf_TOT_CORTMEAN_dr17!='NA' & multiage_train_adrc$lumi_ab42_dr17!='NA'))
+#both
+length(which(multiage_train_adrc$PIB_fSUVR_rsf_TOT_CORTMEAN_dr17!='NA' & multiage_train_adrc$lumi_ab42_dr17!='NA'))
+
+as.factor(multiage_train_adrc$scanner)
+
+```
+###test_hiv test Table
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+#multiage_test_hiv$sex_bin = (recode_factor(multiage_test_hiv$Sex, 
+#              'female' = 1,
+#              'male' = 0))
+
+multiage_test_hiv_demographics = as.data.frame(cbind(multiage_test_hiv$Age
+                        , as.numeric(multiage_test_hiv$Sex)
+                        , multiage_test_hiv$Edu
+                        , multiage_test_hiv$Race
+                        , multiage_test_hiv$Mean_FD_Pre
+                        , multiage_test_hiv$PCT_Retained
+                        , multiage_test_hiv$MMSE
+                        ))
+colnames(multiage_test_hiv_demographics) = c("Age (years)"
+                            , "Sex (% Female)"
+                            , "Education (years)"
+                            , "Race"
+                            , "Mean Head Motion (FD)"
+                            , "% Frames Retained"
+                            , "MMSE"
+                            )
+multiage_test_hiv_demo_table_166 = describe(multiage_test_hiv_demographics)
+multiage_test_hiv_demo_table_166
+write.csv(multiage_test_hiv_demo_table_166, "multiage_test_hiv_demo_38.csv")
+
+length(which(multiage_test_hiv$Sex==2))
+length(which(multiage_test_hiv$Sex==1))
+
+as.factor(multiage_test_hiv$Race)
+length(which(multiage_test_hiv$Race=="5")) / length(which(multiage_test_hiv$Race!='NA')) #white
+length(which(multiage_test_hiv$Race=="4")) #black
+length(which(multiage_test_hiv$Race=="3")) #Asian
+length(which(multiage_test_hiv$Race=="2")) #American Indian
+length(which(multiage_test_hiv$Race=="1")) #multiracial
+
+length(which(multiage_test_hiv$APOE_Pos==0))
+length(which(multiage_test_hiv$APOE_Pos==1))
+
+as.factor(multiage_test_hiv$scanner)
+
+```
+
+###test_dian test Table
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+#multiage_test_dian$sex_bin = (recode_factor(multiage_test_dian$Sex, 
+#              'female' = 1,
+#              'male' = 0))
+
+multiage_test_dian_demographics = as.data.frame(cbind(multiage_test_dian$Age
+                        , as.numeric(multiage_test_dian$Sex)
+                        , multiage_test_dian$Edu
+                        , multiage_test_dian$Race
+                        , multiage_test_dian$Mean_FD_Pre
+                        , multiage_test_dian$PCT_Retained
+                        , multiage_test_dian$MMSE
+                        ))
+colnames(multiage_test_dian_demographics) = c("Age (years)"
+                            , "Sex (% Female)"
+                            , "Education (years)"
+                            , "Race"
+                            , "Mean Head Motion (FD)"
+                            , "% Frames Retained"
+                            , "MMSE"
+                            )
+multiage_test_dian_demo_table_166 = describe(multiage_test_dian_demographics)
+multiage_test_dian_demo_table_166
+write.csv(multiage_test_dian_demo_table_166, "multiage_test_dian_demo_26.csv")
+
+length(which(multiage_test_dian$Sex==2))
+length(which(multiage_test_dian$Sex==1))
+
+
+as.factor(multiage_test_dian$Race)
+length(which(multiage_test_dian$Race=="5")) / length(which(multiage_test_dian$Race!='NA')) #white
+length(which(multiage_test_dian$Race=="4")) #black
+length(which(multiage_test_dian$Race=="3")) #Asian
+length(which(multiage_test_dian$Race=="2")) #American Indian
+length(which(multiage_test_dian$Race=="1")) #multiracial
+
+length(which(multiage_test_dian$APOE_Pos==0))
+length(which(multiage_test_dian$APOE_Pos==1))
+
+#pib - both
+length(which(multiage_test_dian$pib_dian!='NA')) - length(which(multiage_test_dian$pib_dian!='NA' & multiage_test_dian$ab42_dian!='NA'))
+#lumi - both
+length(which(multiage_test_dian$ab42_dian!='NA')) - length(which(multiage_test_dian$pib_dian!='NA' & multiage_test_dian$ab42_dian!='NA'))
+#both
+length(which(multiage_test_dian$pib_dian!='NA' & multiage_test_dian$ab42_dian!='NA'))
+
+as.factor(multiage_test_dian$scanner)
+
+```
+
+###test_adrc test Table
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+#multiage_test_adrc$sex_bin = (recode_factor(multiage_test_adrc$Sex, 
+#              'female' = 1,
+#              'male' = 0))
+
+multiage_test_adrc_demographics = as.data.frame(cbind(multiage_test_adrc$Age
+                        , as.numeric(multiage_test_adrc$Sex)
+                        , multiage_test_adrc$Edu
+                        , multiage_test_adrc$Race
+                        , multiage_test_adrc$Mean_FD_Pre
+                        , multiage_test_adrc$PCT_Retained
+                        , multiage_test_adrc$MMSE
+                        ))
+colnames(multiage_test_adrc_demographics) = c("Age (years)"
+                            , "Sex (% Female)"
+                            , "Education (years)"
+                            , "Race"
+                            , "Mean Head Motion (FD)"
+                            , "% Frames Retained"
+                            , "MMSE"
+                            )
+multiage_test_adrc_demo_table_166 = describe(multiage_test_adrc_demographics)
+multiage_test_adrc_demo_table_166
+write.csv(multiage_test_adrc_demo_table_166, "multiage_test_adrc_demo_34.csv")
+
+length(which(multiage_test_adrc$Sex==2))
+length(which(multiage_test_adrc$Sex==1))
+
+as.factor(multiage_test_adrc$Race)
+length(which(multiage_test_adrc$Race=="5")) / length(which(multiage_test_adrc$Race!='NA')) #white
+length(which(multiage_test_adrc$Race=="4")) #black
+length(which(multiage_test_adrc$Race=="3")) 
+length(which(multiage_test_adrc$Race=="2")) #Asian
+length(which(multiage_test_adrc$Race=="1")) 
+
+length(which(multiage_test_adrc$APOE_Pos==0))
+length(which(multiage_test_adrc$APOE_Pos==1))
+
+#pib - both
+length(which(multiage_test_adrc$Centiloid_dr17!='NA')) - length(which(multiage_test_adrc$Centiloid_dr17!='NA' & multiage_test_adrc$lumi_ab42_dr17!='NA'))# & multiage_test_adrc$lumi_ab42_dr17=='NA'))
+#lumi - both
+length(which(multiage_test_adrc$lumi_ab42_dr17!='NA')) - length(which(multiage_test_adrc$Centiloid_dr17!='NA' & multiage_test_adrc$lumi_ab42_dr17!='NA'))
+#both
+length(which(multiage_test_adrc$Centiloid_dr17!='NA' & multiage_test_adrc$lumi_ab42_dr17!='NA'))
+
+as.factor(multiage_test_adrc$scanner)
+
+```
+
+###ABNeg Test Table
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+#multiage_abneg$sex_bin = (recode_factor(multiage_abneg$Sex, 
+#              'female' = 1,
+#              'male' = 0))
+
+multiage_abneg_demographics = as.data.frame(cbind(multiage_abneg$Age
+                        , as.numeric(multiage_abneg$Sex)
+                        , multiage_abneg$Edu
+                        , multiage_abneg$Race
+                        , multiage_abneg$Mean_FD_Pre
+                        , multiage_abneg$PCT_Retained
+                        , multiage_abneg$MMSE
+                        ))
+colnames(multiage_abneg_demographics) = c("Age (years)"
+                            , "Sex (% Female)"
+                            , "Education (years)"
+                            , "Race"
+                            , "Mean Head Motion (FD)"
+                            , "% Frames Retained"
+                            , "MMSE"
+                            )
+multiage_abneg_demo_table_166 = describe(multiage_abneg_demographics)
+multiage_abneg_demo_table_166
+write.csv(multiage_abneg_demo_table_166, "multiage_abneg_demo_145.csv")
+
+length(which(multiage_abneg$Sex==2))
+length(which(multiage_abneg$Sex==1))
+
+length(which(multiage_abneg$Race_f=="White")) / length(which(multiage_abneg$Race_f!='NA'))
+length(which(multiage_abneg$Race_f=="Black"))
+length(which(multiage_abneg$Race_f=="Asian"))
+
+length(which(multiage_abneg$APOE_Pos==0))
+length(which(multiage_abneg$APOE_Pos==1))
+
+#pib - both
+length(which(multiage_abneg$Centiloid_dr17!='NA')) - length(which(multiage_abneg$Centiloid_dr17!='NA' & multiage_abneg$lumi_ab42_dr17!='NA'))# & multiage_abneg$lumi_ab42_dr17=='NA'))
+#lumi - both
+length(which(multiage_abneg$lumi_ab42_dr17!='NA')) - length(which(multiage_abneg$Centiloid_dr17!='NA' & multiage_abneg$lumi_ab42_dr17!='NA'))
+#both
+length(which(multiage_abneg$Centiloid_dr17!='NA' & multiage_abneg$lumi_ab42_dr17!='NA'))
+
+```
+###abpos Test Table
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+#multiage_abpos$sex_bin = (recode_factor(multiage_abpos$Sex, 
+#              'female' = 1,
+#              'male' = 0))
+
+multiage_abpos_demographics = as.data.frame(cbind(multiage_abpos$Age
+                        , as.numeric(multiage_abpos$Sex)
+                        , multiage_abpos$Edu
+                        , multiage_abpos$Race
+                        , multiage_abpos$Mean_FD_Pre
+                        , multiage_abpos$PCT_Retained
+                        , multiage_abpos$MMSE
+                        ))
+colnames(multiage_abpos_demographics) = c("Age (years)"
+                            , "Sex (% Female)"
+                            , "Education (years)"
+                            , "Race"
+                            , "Mean Head Motion (FD)"
+                            , "% Frames Retained"
+                            , "MMSE"
+                            )
+multiage_abpos_demo_table_172 = describe(multiage_abpos_demographics)
+multiage_abpos_demo_table_172
+write.csv(multiage_abpos_demo_table_172, "multiage_abpos_demo_151.csv")
+
+length(which(multiage_abpos$Sex==2))
+length(which(multiage_abpos$Sex==1))
+
+length(which(multiage_abpos$Race_f=="White")) / length(which(multiage_abpos$Race_f!='NA'))
+length(which(multiage_abpos$Race_f=="Black"))
+length(which(multiage_abpos$Race_f=="Asian"))
+
+length(which(multiage_abpos$APOE_Pos==0))
+length(which(multiage_abpos$APOE_Pos==1))
+
+#pib - both
+length(which(multiage_abpos$Centiloid_dr17!='NA')) - length(which(multiage_abpos$Centiloid_dr17!='NA' & multiage_abpos$lumi_ab42_dr17!='NA'))# & multiage_abpos$lumi_ab42_dr17=='NA'))
+#lumi - both
+length(which(multiage_abpos$lumi_ab42_dr17!='NA')) - length(which(multiage_abpos$Centiloid_dr17!='NA' & multiage_abpos$lumi_ab42_dr17!='NA'))
+#both
+length(which(multiage_abpos$Centiloid_dr17!='NA' & multiage_abpos$lumi_ab42_dr17!='NA'))
+
+
+```
+###cdr051 Test Table
+
+```{r, echo = FALSE, message = FALSE, warning = FALSE}
+#multiage_cdr051$sex_bin = (recode_factor(multiage_cdr051$Sex, 
+#              'female' = 1,
+#              'male' = 0))
+
+multiage_cdr051_demographics = as.data.frame(cbind(multiage_cdr051$Age
+                        , as.numeric(multiage_cdr051$Sex)
+                        , multiage_cdr051$Edu
+                        , multiage_cdr051$Race
+                        , multiage_cdr051$Mean_FD_Pre
+                        , multiage_cdr051$PCT_Retained
+                        , multiage_cdr051$MMSE
+                        ))
+colnames(multiage_cdr051_demographics) = c("Age (years)"
+                            , "Sex (% Female)"
+                            , "Education (years)"
+                            , "Race"
+                            , "Mean Head Motion (FD)"
+                            , "% Frames Retained"
+                            , "MMSE"
+                            )
+multiage_cdr051_demo_table_147 = describe(multiage_cdr051_demographics)
+multiage_cdr051_demo_table_147
+write.csv(multiage_cdr051_demo_table_147, "multiage_cdr051_demo_156.csv")
+
+length(which(multiage_cdr051$Sex==2))
+length(which(multiage_cdr051$Sex==1))
+
+length(which(multiage_cdr051$Race_f=="White")) / length(which(multiage_cdr051$Race_f!='NA'))
+length(which(multiage_cdr051$Race_f=="Black"))
+length(which(multiage_cdr051$Race_f=="Asian"))
+
+length(which(multiage_cdr051$APOE_Pos==0))
+length(which(multiage_cdr051$APOE_Pos==1))
+
+#pib - both
+length(which(multiage_cdr051$Centiloid_dr17!='NA')) - length(which(multiage_cdr051$Centiloid_dr17!='NA' & multiage_cdr051$lumi_ab42_dr17!='NA'))# & multiage_cdr051$lumi_ab42_dr17=='NA'))
+#lumi - both
+length(which(multiage_cdr051$lumi_ab42_dr17!='NA')) - length(which(multiage_cdr051$Centiloid_dr17!='NA' & multiage_cdr051$lumi_ab42_dr17!='NA'))
+#both
+length(which(multiage_cdr051$Centiloid_dr17!='NA' & multiage_cdr051$lumi_ab42_dr17!='NA'))
+
+
+```
+```{r}
+stem(multiage_cdr051$CDR)
+cdr05 = subset(multiage_cdr051, CDR == 0.5)
+cdr10 = subset(multiage_cdr051, CDR == 1)
+cdr20 = subset(multiage_cdr051, CDR == 2)
+cdr30 = subset(multiage_cdr051, CDR == 3)
+
+
+```
+
+
+
+###Age Anova
+
+```{r}
+anova = ezANOVA(data = multiage_train_val,
+                   dv = Age,
+                   wid = SessionID,
+                   #between_covariates = Age,
+                   between = group_multi*sample)
+pander(anova$ANOVA, digits = 2, caption = "Age")
+
+```
+
+```{r}
+anova = ezANOVA(data = multiage,
+                   dv = Age,
+                   wid = SessionID,
+                   #between_covariates = Age,
+                   between = Group)
+pander(anova$ANOVA, digits = 2, caption = "Age")
+
+```
+
+```{r}
+compare_means(Age ~ Group,  data = multiage, method = "t.test")
+```
+
+```{r}
+multiage %>%
+  group_by(Group) %>%
+  summarise(MeanAge = mean(Age), Std = sd(Age))
+```
+
+
+###Edu Anova
+
+```{r}
+anova = ezANOVA(data = subset(multiage_train_val, Edu != 'NA'),
+                   dv = Edu,
+                   wid = SessionID,
+                   #between_covariates = Age,
+                   between = group_multi*sample)
+pander(anova$ANOVA, digits = 2, caption = "Age")
+
+```
+
+```{r}
+anova = ezANOVA(data = multiage,
+                   dv = Edu,
+                   wid = SessionID,
+                   #between_covariates = Age,
+                   between = Group)
+pander(anova$ANOVA, digits = 2, caption = "Edu")
+
+```
+
+```{r}
+compare_means(Edu ~ Group,  data = multiage, method = "t.test")
+
+```
+
+
+###MMSE Anova
+```{r}
+anova = ezANOVA(data = multiage,
+                   dv = MMSE,
+                   wid = SessionID,
+                   #between_covariates = Age,
+                   between = Group)
+pander(anova$ANOVA, digits = 2, caption = "MMSE")
+
+```
+
+```{r}
+compare_means(MMSE ~ Group,  data = multiage, method = "t.test")
+
+```
+
+###FD Anova
+```{r}
+anova = ezANOVA(data = multiage,
+                   dv = Mean_FD_Pre,
+                   wid = SessionID,
+                   #between_covariates = Age,
+                   between = Group)
+pander(anova$ANOVA, digits = 2, caption = "FD")
+
+
+```
+
+```{r}
+compare_means(Mean_FD_Pre ~ Group,  data = multiage, method = "t.test")
+
+```
+
+###Sex Chisq
+```{r}
+multiage_train_val$Sex_f = recode_factor(multiage_train_val$Sex, 
+              '1' = 'Male',
+              '2' = 'Female')
+multiage_train_val$Sex_f = droplevels.factor(multiage_train_val$Sex_f)
+multiage_train_val$group_multi = droplevels.factor(multiage_train_val$group_multi)
+multiage_train_val$CDR_bin = droplevels.factor(multiage_train_val$CDR_bin)
+sex_table_train = table(multiage_train_val$group_multi, multiage_train_val$Sex_f)
+sex_table_train
+chisq.test(sex_table_train)
+
+
+```
+
+```{r}
+multiage$Sex_f = droplevels.factor(multiage$Sex_f)
+multiage$Group = droplevels.factor(multiage$Group)
+multiage$CDR_bin = droplevels.factor(multiage$CDR_bin)
+sex_table_all = table(multiage$Group, multiage$Sex_f)
+sex_table_all
+chisq.test(sex_table_all)
+
+multiage_nosym = subset(multiage, Group != "Symptomatic AD")
+sex_table_abpos = table(multiage_nosym$ab_pos_lumi_trad_ab4240, multiage_nosym$Sex_f)
+sex_table_abpos
+chisq.test(sex_table_abpos)
+
+multiage_nopre = subset(multiage, Group != "Preclinical AD")
+sex_table_cdr051 = table(multiage_nopre$CDR_bin, multiage_nopre$Sex_f)
+sex_table_cdr051
+chisq.test(sex_table_cdr051)
+
+```
+###APOE Chisq
+```{r}
+apoe_table_all = table(multiage$Group, multiage$APOE_Pos)
+apoe_table_all
+chisq.test(apoe_table_all)
+
+multiage_nosym = subset(multiage, Group != "Symptomatic AD")
+apoe_table_abpos = table(multiage_nosym$ab_pos_lumi_trad_ab4240, multiage_nosym$APOE_Pos)
+apoe_table_abpos
+chisq.test(apoe_table_abpos)
+
+multiage_nopre = subset(multiage, Group != "Preclinical AD")
+apoe_table_cdr051 = table(multiage_nopre$CDR_bin, multiage_nopre$APOE_Pos)
+apoe_table_cdr051
+chisq.test(apoe_table_cdr051)
+
+```
+
+###Race Chisq
+```{r}
+multiage_train_val$Race_f = recode_factor(multiage_train_val$Race,
+              '1' = 'American Indian or Alaska Native',
+              '2' = 'Asian',
+              '3' = 'Native Hawaiian or Other Pacific Islander',
+              '4' = 'Black',
+              '5' = 'White',
+              '6' = 'More than one race')
+multiage_train_val$Race_f = droplevels.factor(multiage_train_val$Race_f)
+multiage_train_val$group_multi = droplevels.factor(multiage_train_val$group_multi)
+multiage_train_val$CDR_bin = droplevels.factor(multiage_train_val$CDR_bin)
+race_table_train = table(multiage_train_val$group_multi, multiage_train_val$Race_f)
+race_table_train
+chisq.test(race_table_train)
+
+
+```
+
+```{r}
+race_table_all = table(multiage$Group, multiage$Race_f)
+race_table_all
+chisq.test(race_table_all)
+
+multiage_nosym = subset(multiage, Group != "Symptomatic AD")
+race_table_abpos = table(multiage_nosym$ab_pos_lumi_trad_ab4240, multiage_nosym$Race_f)
+race_table_abpos
+chisq.test(race_table_abpos)
+
+multiage_nopre = subset(multiage, Group != "Preclinical AD")
+race_table_cdr051 = table(multiage_nopre$CDR_bin, multiage_nopre$Race_f)
+race_table_cdr051
+chisq.test(race_table_cdr051)
+
+```
+
+
+#MODEL FIT
+##Training Model perfomance
+###FC
+```{r}
+yscale = multiage_train$age_pred_multi
+
+g = ggplot(multiage_train, aes(x = Age, y = age_pred_fc2))
+g + geom_point(aes(color = group_multi)) +
+  labs(title="FC Model Performance (in Training Sets)",x="True Age", y = "Predicted Age") +
+  geom_smooth(aes(color = group_multi, fill = group_multi), method = lm) + 
+  scale_color_manual(values = c("cyan1")) +
+  scale_fill_manual(values = c("cyan1")) +
+  geom_abline(slope = 1, intercept = 0, linetype = "longdash") + 
+  xlim(min(c(multiage_train$Age, yscale)), max(c(multiage_train$Age, yscale))) + 
+  ylim(min(c(multiage_train$Age, yscale)), max(c(multiage_train$Age, yscale))) + 
+  theme_bw(base_size = 15) +
+  theme(legend.position='none', plot.title = element_text(hjust = 0.5), legend.title = element_blank())
+
+ggsave('multiage_trainsets_all_fc_harm_220516.png', width = 6, height = 6, units = "in", dpi = 320)
+```
+###vol
+```{r}
+yscale = multiage_train$age_pred_multi
+
+g = ggplot(multiage_train, aes(x = Age, y = age_pred_vol2))
+g + geom_point(aes(color = group_multi)) +
+  labs(title="Vol Model Performance (in Training Sets)",x="True Age", y = "Predicted Age") +
+  geom_smooth(aes(color = group_multi, fill = group_multi), method = lm) + 
+  scale_color_manual(values = c("cyan3")) +
+  scale_fill_manual(values = c("cyan3")) +
+  geom_abline(slope = 1, intercept = 0, linetype = "longdash") + 
+  xlim(min(c(multiage_train$Age, yscale)), max(c(multiage_train$Age, yscale))) + 
+  ylim(min(c(multiage_train$Age, yscale)), max(c(multiage_train$Age, yscale))) + 
+  theme_bw(base_size = 15) +
+  theme(legend.position='none', plot.title = element_text(hjust = 0.5), legend.title = element_blank())
+
+ggsave('multiage_trainsets_all_vol_harm_220516.png', width = 6, height = 6, units = "in", dpi = 320)
+```
+###multi
+```{r}
+yscale = multiage_train$age_pred_multi
+
+g = ggplot(multiage_train, aes(x = Age, y = age_pred_multi))
+g + geom_point(aes(color = group_multi)) +
+  labs(title="Vol+FC Model Performance (in Training Sets)",x="True Age", y = "Predicted Age") +
+  geom_smooth(aes(color = group_multi, fill = group_multi), method = lm) + 
+  scale_color_manual(values = c("cyan4")) +
+  scale_fill_manual(values = c("cyan4")) +
+  geom_abline(slope = 1, intercept = 0, linetype = "longdash") + 
+  xlim(min(c(multiage_train$Age, yscale)), max(c(multiage_train$Age, yscale))) + 
+  ylim(min(c(multiage_train$Age, yscale)), max(c(multiage_train$Age, yscale))) + 
+  theme_bw(base_size = 15) +
+  theme(legend.position='none', plot.title = element_text(hjust = 0.5), legend.title = element_blank())
+
+ggsave('multiage_trainsets_all_multi_harm_220516.png', width = 6, height = 6, units = "in", dpi = 320)
+```
+
+
+#GROUP DIFFERENCES
+##Test sets
+
+
+###AB/Tau/Sym Effect
+####Multi
+```{r}
+#multiage_pre = subset(multiage, CDR == 0)
+#multiage_atn = 
+
+yscale = multiage_atn$age_pred_vol2
+g = ggplot(multiage_atn, aes(x = Age, y = age_pred_multi))
+g + geom_point(aes(color = at_pos_gmm)) +
+  labs(title="Vol+FC-Predicted Brain Age",x="True Age", y = "Predicted Age") +
+  geom_smooth(aes(color = at_pos_gmm, fill = at_pos_gmm), method = lm) + 
+  scale_color_manual(values = c("blue", "forestgreen", 'orange', 'red')) +
+  scale_fill_manual(values = c("blue", "forestgreen", 'orange', 'red')) +
+  geom_abline(slope = 1, intercept = 0, linetype = "longdash") + 
+  xlim(min(c(multiage$Age, yscale)), max(c(multiage$Age, yscale))) + 
+  ylim(min(c(multiage$Age, yscale)), max(c(multiage$Age, yscale))) + 
+  theme_bw(base_size = 15) +
+  theme(legend.position=c(.15, .85), plot.title = element_text(hjust = 0.5), legend.title = element_blank(), legend.key = element_blank(), legend.background=element_blank())
+ggsave('multiage_testsets_abtausym_harm_220516.png', width = 6, height = 6, units = "in", dpi = 320)
+
+```
+
+####Vol2
+```{r}
+#multiage_pre = subset(multiage, CDR == 0)
+#multiage_atn = subset(multiage, at_pos != 'NA')
+yscale = multiage_atn$age_pred_vol2
+g = ggplot(multiage_atn, aes(x = Age, y = age_pred_vol2))
+g + geom_point(aes(color = at_pos_gmm)) +
+  labs(title="Vol-Predicted Brain Age",x="True Age", y = "Predicted Age") +
+  geom_smooth(aes(color = at_pos_gmm, fill = at_pos_gmm), method = lm) + 
+  scale_color_manual(values = c("blue", "forestgreen", 'orange', 'red')) +
+  scale_fill_manual(values = c("blue", "forestgreen", 'orange', 'red')) +
+  geom_abline(slope = 1, intercept = 0, linetype = "longdash") + 
+  xlim(min(c(multiage$Age, yscale)), max(c(multiage$Age, yscale))) + 
+  ylim(min(c(multiage$Age, yscale)), max(c(multiage$Age, yscale))) + 
+  theme_bw(base_size = 15) +
+  theme(legend.position=c(.15, .85), plot.title = element_text(hjust = 0.5), legend.title = element_blank(), legend.key = element_blank(), legend.background=element_blank())
+ggsave('vol2age_testsets_abtausym_harm_220516.png', width = 6, height = 6, units = "in", dpi = 320)
+
+```
+####fc2
+```{r}
+#multiage_pre = subset(multiage, CDR == 0)
+#multiage_atn = subset(multiage, at_pos_gmm != 'NA')
+yscale = multiage_atn$age_pred_vol2
+g = ggplot(multiage_atn, aes(x = Age, y = age_pred_fc2))
+g + geom_point(aes(color = at_pos_gmm)) +
+  labs(title="FC-Predicted Brain Age",x="True Age", y = "Predicted Age") +
+  geom_smooth(aes(color = at_pos_gmm, fill = at_pos_gmm), method = lm) + 
+  scale_color_manual(values = c("blue", "forestgreen", 'orange', 'red')) +
+  scale_fill_manual(values = c("blue", "forestgreen", 'orange', 'red')) +
+  geom_abline(slope = 1, intercept = 0, linetype = "longdash") + 
+  xlim(min(c(multiage$Age, yscale)), max(c(multiage$Age, yscale))) + 
+  ylim(min(c(multiage$Age, yscale)), max(c(multiage$Age, yscale))) + 
+  theme_bw(base_size = 15) +
+  theme(legend.position=c(.15, .85), plot.title = element_text(hjust = 0.5), legend.title = element_blank(), legend.key = element_blank(), legend.background=element_blank())
+ggsave('fc2age_testsets_abtausym_harm_220516.png', width = 6, height = 6, units = "in", dpi = 320)
+
+```
+
+
+##Pairwise comparisons
+
+
+###AB- v AB+ v Tau+ v Sym
+#####Multi
+```{r}
+cdr_anova = ezANOVA(data = multiage_atn,
+                   dv = age_pred_multi,
+                   wid = SessionID,
+                   between_covariates = Age,
+                   between = at_pos_gmm)
+pander(cdr_anova$ANOVA, digits = 2, caption = "A/T")
+
+#rs_groupanova_age <- ezANOVA(data = data.frame(rs),
+#                          dv = age_final, 
+#                          wid = map_id_final,
+#                          #within = c(switch, colorword, congruity),
+#                          between = AgeAD)
+```
+######Kruskal
+```{r}
+kruskal.test(agegapreg_multi ~ at_pos_gmm,  data = multiage_atn)
+```
+######Pairwise
+```{r}
+compare_means(agegapreg_multi ~ at_pos_gmm,  data = multiage_atn, method = "wilcox")
+my_comparisons <- list( #c("A-T-", "A+T-"), c("A+T-", "A+T+"), c("A-T-", "A+T+"),
+   # c("A-T-", "A+T-")
+  #, c("A+T-", "A+T+"), 
+  c("A-T-", "A+T+")
+  , c("A+T+", "CDR > 0"), c("A+T-", "CDR > 0"), c("A-T-", "CDR > 0")
+  
+                        #c("A+T-", "A+T+"), 
+                        #c("A-T-", "Symptomatic AD"), c("A+T-", "Symptomatic AD"), c("Symptomatic AD", "A+T+")
+                        
+                        )
+
+```
+######Violin Plot
+
+```{r}
+p<-ggplot(multiage_atn, aes(x=at_pos_gmm, y=agegapreg_multi, fill=at_pos_gmm)) +
+  labs(title="Vol+FC-BAG",x="", y = "Residual Vol+FC-BAG") +
+  geom_violin(trim=FALSE, color = "black") + 
+  scale_fill_manual(breaks=c("A-T-", "A+T-", "A+T+", "CDR > 0"),
+                              values=c("blue", "forestgreen", "orange", "red")) +
+
+  geom_hline(yintercept = 0, linetype = "longdash") +
+  geom_boxplot(width=0.3, color = "black") +
+  #geom_jitter(shape=16, position=position_jitter(0.05)) +
+  stat_compare_means(comparisons = my_comparisons, method = "wilcox"
+                     , aes(label = ..p..)
+                     )+ # Add pairwise comparisons p-value
+  #stat_compare_means(label.y = 50)+     # Add global p-value
+  ylim(min(-30), max(40)) + 
+  theme_classic(base_size = 15) +
+  theme(legend.position="none", plot.title = element_text(hjust = 0.5))
+p
+ggsave('multiage_abtausym_violin_harm_220516.png', width = 5, height = 5, units = "in", dpi = 320)
+```
+#####Vol2
+######Kruskal
+```{r}
+kruskal.test(agegapreg_vol2 ~ at_pos_gmm,  data = multiage_atn)
+```
+######Pairwise
+```{r}
+compare_means(agegapreg_vol2 ~ at_pos_gmm,  data = multiage_atn, method = "wilcox")
+my_comparisons <- list( #c("A-T-", "A+T-"), c("A+T-", "A+T+"), c("A-T-", "A+T+"),
+    #c("A-T-", "A+T-")
+  #, c("A+T-", "A+T+"), c("A-T-", "A+T+")
+  #, 
+  c("A+T+", "CDR > 0"), c("A+T-", "CDR > 0"), c("A-T-", "CDR > 0")
+  
+                        #c("A+T-", "A+T+"), 
+                        #c("A-T-", "Symptomatic AD"), c("A+T-", "Symptomatic AD"), c("Symptomatic AD", "A+T+")
+                        
+                        )
+
+```
+######Violin Plot
+
+```{r}
+p<-ggplot(multiage_atn, aes(x=at_pos_gmm, y=agegapreg_vol2, fill=at_pos_gmm)) +
+  labs(title="Vol-BAG",x="", y = "Residual Vol-BAG") +
+  geom_violin(trim=FALSE, color = "black") + 
+  scale_fill_manual(breaks=c("A-T-", "A+T-", "A+T+", "CDR > 0"),
+                              values=c("blue", "forestgreen", "orange", "red")) +
+
+  geom_hline(yintercept = 0, linetype = "longdash") +
+  geom_boxplot(width=0.3, color = "black") +
+  #geom_jitter(shape=16, position=position_jitter(0.05)) +
+  stat_compare_means(comparisons = my_comparisons, method = "wilcox"
+                     , aes(label = ..p..)
+                     )+ # Add pairwise comparisons p-value
+  #stat_compare_means(label.y = 50)+     # Add global p-value
+  ylim(min(-30), max(40)) + 
+  theme_classic(base_size = 15) +
+  theme(legend.position="none", plot.title = element_text(hjust = 0.5))
+p
+ggsave('volage_abtausym_violin_harm_220516.png', width = 5, height = 5, units = "in", dpi = 320)
+```
+#####fc2
+######Kruskal
+```{r}
+kruskal.test(agegapreg_fc2 ~ at_pos_gmm,  data = multiage_atn)
+```
+######Pairwise
+```{r}
+compare_means(agegapreg_fc2 ~ at_pos_gmm,  data = multiage_atn, method = "wilcox")
+my_comparisons <- list( #c("A-T-", "A+T-"), c("A+T-", "A+T+"), c("A-T-", "A+T+"),
+    c("A+T-", "A+T+")
+  , c("A-T-", "A+T-"), c("A-T-", "A+T+")
+  , c("A+T+", "CDR > 0"), c("A+T-", "CDR > 0")#, c("A-T-", "CDR > 0")
+  
+                        #c("A+T-", "A+T+"), 
+                        #c("A-T-", "Symptomatic AD"), c("A+T-", "Symptomatic AD"), c("Symptomatic AD", "A+T+")
+                        
+                        )
+
+```
+
+######Violin Plot
+
+```{r}
+p<-ggplot(multiage_atn, aes(x=at_pos_gmm, y=agegapreg_fc2, fill=at_pos_gmm)) +
+  labs(title="FC-BAG",x="", y = "Residual FC-BAG") +
+  geom_violin(trim=FALSE, color = "black") + 
+  scale_fill_manual(breaks=c("A-T-", "A+T-", "A+T+", "CDR > 0"),
+                              values=c("blue", "forestgreen", "orange", "red")) +
+
+  geom_hline(yintercept = 0, linetype = "longdash") +
+  geom_boxplot(width=0.3, color = "black") +
+  #geom_jitter(shape=16, position=position_jitter(0.05)) +
+  stat_compare_means(comparisons = my_comparisons, method = "wilcox"
+                     , aes(label = ..p..)
+                     )+ # Add pairwise comparisons p-value
+  #stat_compare_means(label.y = 50)+     # Add global p-value
+  ylim(min(-30), max(40)) + 
+  theme_classic(base_size = 15) +
+  theme(legend.position="none", plot.title = element_text(hjust = 0.5))
+p
+ggsave('fcage_abtausym_violin_harm_220516.png', width = 5, height = 5, units = "in", dpi = 320)
+```
+
+
+
+
+
+
+#BIOMARKER ANALYSES
+##PAPER VERSIONS
+###Dummy code
+```{r}
+multiage$control = ifelse(multiage$group_multi == "0", 1, 0)
+multiage$preclinical = ifelse(multiage$group_multi == "1", 1, 0)
+multiage$impaired = ifelse(multiage$group_multi == "2", 1, 0)
+
+
+```
+
+###Amyloid PET
+####fc
+main effect
+```{r}
+multiage_ad = subset(multiage, group_multi != 0)
+amyloid_error_fc = lm((Centiloid_dr17) ~ #lumi_ab42_dr17
+                     #agegap_fc2*group_multi
+                     #agegap_fc2*control
+                      agegap_fc2#*preclinical
+                     # agegap_fc2*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_fc*group_multi #+Sex + Race + Edu
+                   , data = multiage_ad)
+summary(amyloid_error_fc)
+etasq(amyloid_error_fc)
+
+```
+interaction
+```{r}
+multiage_ad = subset(multiage, group_multi != 0)
+amyloid_error_fc_cdr = lm((Centiloid_dr17) ~ #lumi_ab42_dr17
+                     #agegap_fc2*group_multi
+                     #agegap_fc2*control
+                      agegap_fc2*Group
+                     # agegap_fc2*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_fc*group_multi #+Sex + Race + Edu
+                   , data = multiage_ad)
+summary(amyloid_error_fc_cdr)
+etasq(amyloid_error_fc_cdr)
+
+```
+Plot
+```{r}
+g = ggplot(multiage_ad, aes(y = Centiloid_dr17, x = agegapreg_fc2))
+g + geom_point(aes(color = Group)) +
+  labs(title="", x = "Residual FC-BAG", y = "Amyloid PET (Centiloid)") +
+  geom_smooth(aes(color = Group, fill = Group), method = lm) + 
+  geom_smooth(col = 'black', method = lm, linetype = 'dashed') + 
+  scale_color_manual(values = c("forestgreen", "red")) +
+  scale_fill_manual(values = c("forestgreen", "red")) +
+  #geom_vline(xintercept = 0, linetype = "longdash") + 
+  #geom_vline(yintercept = 1.42, linetype = "longdash") +
+  #xlim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  #ylim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  theme_bw(base_size = 15) +
+  theme(legend.position=c(.1, .935), plot.title = element_text(hjust = 0.5), legend.title = element_blank(), legend.key = element_blank(), legend.background=element_blank())
+
+ggsave('fc2age_petcent_grouped_harm_220516.png', width = 6, height = 6, units = "in", dpi = 320)
+```
+####vol
+main effect
+```{r}
+multiage_ad = subset(multiage, group_multi != 0)
+amyloid_error_vol = lm((Centiloid_dr17) ~ #lumi_ab42_dr17
+                     #agegap_vol2*group_multi
+                     #agegap_vol2*control
+                      agegap_vol2#*preclinical
+                     # agegap_vol2*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_vol*group_multi #+Sex + Race + Edu
+                   , data = multiage_ad)
+summary(amyloid_error_vol)
+etasq(amyloid_error_vol)
+
+```
+interaction
+```{r}
+multiage_ad = subset(multiage, group_multi != 0)
+amyloid_error_vol_cdr = lm((Centiloid_dr17) ~ #lumi_ab42_dr17
+                     #agegap_vol2*group_multi
+                     #agegap_vol2*control
+                      agegap_vol2*Group
+                     # agegap_vol2*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_vol*group_multi #+Sex + Race + Edu
+                   , data = multiage_ad)
+summary(amyloid_error_vol_cdr)
+etasq(amyloid_error_vol_cdr)
+
+```
+Plot
+```{r}
+g = ggplot(multiage_ad, aes(y = Centiloid_dr17, x = agegapreg_vol2))
+g + geom_point(aes(color = Group)) +
+  labs(title="", x = "Residual Vol-BAG", y = "Amyloid PET (Centiloid)") +
+  geom_smooth(aes(color = Group, fill = Group), method = lm) + 
+  geom_smooth(col = 'black', method = lm, linetype = 'dashed') + 
+  scale_color_manual(values = c("forestgreen", "red")) +
+  scale_fill_manual(values = c("forestgreen", "red")) +
+  #geom_vline(xintercept = 0, linetype = "longdash") + 
+  #geom_vline(yintercept = 1.42, linetype = "longdash") +
+  #xlim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  #ylim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  theme_bw(base_size = 15) +
+  theme(legend.position='none', plot.title = element_text(hjust = 0.5), legend.title = element_blank(), legend.key = element_blank(), legend.background=element_blank())
+
+ggsave('vol2age_petcent_grouped_harm_220516.png', width = 6, height = 6, units = "in", dpi = 320)
+```
+####multi
+main effect
+```{r}
+multiage_ad = subset(multiage, group_multi != 0)
+amyloid_error_multi = lm((Centiloid_dr17) ~ #lumi_ab42_dr17
+                     #agegap_multi*group_multi
+                     #agegap_multi*control
+                      agegap_multi#*preclinical
+                     # agegap_multi*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_multi*group_multi #+Sex + Race + Edu
+                   , data = multiage_ad)
+summary(amyloid_error_multi)
+etasq(amyloid_error_multi)
+
+```
+interaction
+```{r}
+multiage_ad = subset(multiage, group_multi != 0)
+amyloid_error_multi_cdr = lm((Centiloid_dr17) ~ #lumi_ab42_dr17
+                     #agegap_multi*group_multi
+                     #agegap_multi*control
+                      agegap_multi*Group
+                     # agegap_multi*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_multi*group_multi #+Sex + Race + Edu
+                   , data = multiage_ad)
+summary(amyloid_error_multi_cdr)
+etasq(amyloid_error_multi_cdr)
+
+```
+Plot
+```{r}
+g = ggplot(multiage_ad, aes(y = Centiloid_dr17, x = agegapreg_multi))
+g + geom_point(aes(color = Group)) +
+  labs(title="", x = "Residual Vol+FC-BAG", y = "Amyloid PET (Centiloid)") +
+  geom_smooth(aes(color = Group, fill = Group), method = lm) + 
+  geom_smooth(col = 'black', method = lm, linetype = 'dashed') + 
+  scale_color_manual(values = c("forestgreen", "red")) +
+  scale_fill_manual(values = c("forestgreen", "red")) +
+  #geom_vline(xintercept = 0, linetype = "longdash") + 
+  #geom_vline(yintercept = 1.42, linetype = "longdash") +
+  #xlim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  #ylim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  theme_bw(base_size = 15) +
+  theme(legend.position='none', plot.title = element_text(hjust = 0.5), legend.title = element_blank(), legend.key = element_blank(), legend.background=element_blank())
+
+ggsave('multiage_petcent_grouped_harm_220516.png', width = 6, height = 6, units = "in", dpi = 320)
+```
+###Amyloid CSF
+####fc
+main effect
+```{r}
+multiage_ad = subset(multiage, group_multi != 0)
+amyloid_error_fc = lm((lumi_ab42_40_ratio_dr17) ~ #lumi_ab42_dr17
+                     #agegap_fc2*group_multi
+                     #agegap_fc2*control
+                      agegap_fc2#*preclinical
+                     # agegap_fc2*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_fc*group_multi #+Sex + Race + Edu
+                   , data = multiage_ad)
+summary(amyloid_error_fc)
+etasq(amyloid_error_fc)
+
+```
+interaction
+```{r}
+multiage_ad = subset(multiage, group_multi != 0)
+amyloid_error_fc_cdr = lm((lumi_ab42_40_ratio_dr17) ~ #lumi_ab42_dr17
+                     #agegap_fc2*group_multi
+                     #agegap_fc2*control
+                      agegap_fc2*Group
+                     # agegap_fc2*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_fc*group_multi #+Sex + Race + Edu
+                   , data = multiage_ad)
+summary(amyloid_error_fc_cdr)
+etasq(amyloid_error_fc_cdr)
+
+```
+Plot
+```{r}
+g = ggplot(multiage_ad, aes(y = lumi_ab42_40_ratio_dr17, x = agegapreg_fc2))
+g + geom_point(aes(color = Group)) +
+  labs(title="", x = "Residual FC-BAG", y = "CSF AB42/40 Ratio") +
+  geom_smooth(aes(color = Group, fill = Group), method = lm) + 
+  geom_smooth(col = 'black', method = lm, linetype = 'dashed') + 
+  scale_color_manual(values = c("forestgreen", "red")) +
+  scale_fill_manual(values = c("forestgreen", "red")) +
+  #geom_vline(xintercept = 0, linetype = "longdash") + 
+  #geom_vline(yintercept = 1.42, linetype = "longdash") +
+  #xlim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  #ylim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  theme_bw(base_size = 15) +
+  theme(legend.position=c(.1, .935), plot.title = element_text(hjust = 0.5), legend.title = element_blank(), legend.key = element_blank(), legend.background=element_blank())
+
+ggsave('fc2age_csfab4240_grouped_harm_220516.png', width = 6, height = 6, units = "in", dpi = 320)
+```
+####vol
+main effect
+```{r}
+multiage_ad = subset(multiage, group_multi != 0)
+amyloid_error_vol = lm((lumi_ab42_40_ratio_dr17) ~ #lumi_ab42_dr17
+                     #agegap_vol2*group_multi
+                     #agegap_vol2*control
+                      agegap_vol2#*preclinical
+                     # agegap_vol2*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_vol*group_multi #+Sex + Race + Edu
+                   , data = multiage_ad)
+summary(amyloid_error_vol)
+etasq(amyloid_error_vol)
+
+```
+interaction
+```{r}
+multiage_ad = subset(multiage, group_multi != 0)
+amyloid_error_vol_cdr = lm((lumi_ab42_40_ratio_dr17) ~ #lumi_ab42_dr17
+                     #agegap_vol2*group_multi
+                     #agegap_vol2*control
+                      agegap_vol2*Group
+                     # agegap_vol2*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_vol*group_multi #+Sex + Race + Edu
+                   , data = multiage_ad)
+summary(amyloid_error_vol_cdr)
+etasq(amyloid_error_vol_cdr)
+
+```
+Plot
+```{r}
+g = ggplot(multiage_ad, aes(y = lumi_ab42_40_ratio_dr17, x = agegapreg_vol2))
+g + geom_point(aes(color = Group)) +
+  labs(title="", x = "Residual Vol-BAG", y = "CSF AB42/40 Ratio") +
+  geom_smooth(aes(color = Group, fill = Group), method = lm) + 
+  geom_smooth(col = 'black', method = lm, linetype = 'dashed') + 
+  scale_color_manual(values = c("forestgreen", "red")) +
+  scale_fill_manual(values = c("forestgreen", "red")) +
+  #geom_vline(xintercept = 0, linetype = "longdash") + 
+  #geom_vline(yintercept = 1.42, linetype = "longdash") +
+  #xlim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  #ylim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  theme_bw(base_size = 15) +
+  theme(legend.position='none', plot.title = element_text(hjust = 0.5), legend.title = element_blank(), legend.key = element_blank(), legend.background=element_blank())
+
+ggsave('vol2age_csfab4240_grouped_harm_220516.png', width = 6, height = 6, units = "in", dpi = 320)
+```
+####multi
+main effect
+```{r}
+multiage_ad = subset(multiage, group_multi != 0)
+amyloid_error_multi = lm((lumi_ab42_40_ratio_dr17) ~ #lumi_ab42_dr17
+                     #agegap_multi*group_multi
+                     #agegap_multi*control
+                      agegap_multi#*preclinical
+                     # agegap_multi*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_multi*group_multi #+Sex + Race + Edu
+                   , data = multiage_ad)
+summary(amyloid_error_multi)
+etasq(amyloid_error_multi)
+
+```
+interaction
+```{r}
+multiage_ad = subset(multiage, group_multi != 0)
+amyloid_error_multi_cdr = lm((lumi_ab42_40_ratio_dr17) ~ #lumi_ab42_dr17
+                     #agegap_multi*group_multi
+                     #agegap_multi*control
+                      agegap_multi*Group
+                     # agegap_multi*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_multi*group_multi #+Sex + Race + Edu
+                   , data = multiage_ad)
+summary(amyloid_error_multi_cdr)
+etasq(amyloid_error_multi_cdr)
+
+```
+Plot
+```{r}
+g = ggplot(multiage_ad, aes(y = lumi_ab42_40_ratio_dr17, x = agegapreg_multi))
+g + geom_point(aes(color = Group)) +
+  labs(title="", x = "Residual Vol+FC-BAG", y = "CSF AB42/40 Ratio") +
+  geom_smooth(aes(color = Group, fill = Group), method = lm) + 
+  geom_smooth(col = 'black', method = lm, linetype = 'dashed') + 
+  scale_color_manual(values = c("forestgreen", "red")) +
+  scale_fill_manual(values = c("forestgreen", "red")) +
+  #geom_vline(xintercept = 0, linetype = "longdash") + 
+  #geom_vline(yintercept = 1.42, linetype = "longdash") +
+  #xlim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  #ylim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  theme_bw(base_size = 15) +
+  theme(legend.position='none', plot.title = element_text(hjust = 0.5), legend.title = element_blank(), legend.key = element_blank(), legend.background=element_blank())
+
+ggsave('multiage_csfab4240_grouped_harm_220516.png', width = 6, height = 6, units = "in", dpi = 320)
+```
+###tau PET
+####fc
+main effect
+```{r}
+tau_error_fc = lm((Tauopathy_dr17) ~ #lumi_ab42_dr17
+                     #agegap_fc2*group_multi
+                     #agegap_fc2*control
+                      agegap_fc2#*preclinical
+                     # agegap_fc2*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_fc*group_multi #+Sex + Race + Edu
+                   , data = multiage)
+summary(tau_error_fc)
+etasq(tau_error_fc)
+
+```
+interaction
+```{r}
+tau_error_fc_cdr = lm((Tauopathy_dr17) ~ #lumi_ab42_dr17
+                     #agegap_fc2*group_multi
+                     #agegap_fc2*control
+                      agegap_fc2*Group
+                     # agegap_fc2*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_fc*group_multi #+Sex + Race + Edu
+                   , data = multiage)
+summary(tau_error_fc_cdr)
+etasq(tau_error_fc_cdr)
+
+```
+Plot
+```{r}
+g = ggplot(multiage, aes(y = Tauopathy_dr17, x = agegapreg_fc2))
+g + geom_point(aes(color = Group)) +
+  labs(title="", x = "Residual FC-BAG", y = "Tau PET (SUVR)") +
+  geom_smooth(aes(color = Group, fill = Group), method = lm) + 
+  geom_smooth(col = 'black', method = lm, linetype = 'dashed') + 
+  scale_color_manual(values = c("blue", "forestgreen", "red")) +
+  scale_fill_manual(values = c("blue", "forestgreen", "red")) +
+  #geom_vline(xintercept = 0, linetype = "longdash") + 
+  #geom_vline(yintercept = 1.42, linetype = "longdash") +
+  #xlim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  #ylim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  theme_bw(base_size = 15) +
+  theme(legend.position=c(.1, .9), plot.title = element_text(hjust = 0.5), legend.title = element_blank(), legend.key = element_blank(), legend.background=element_blank())
+
+ggsave('fc2age_taupet_grouped_harm_220516.png', width = 6, height = 6, units = "in", dpi = 320)
+```
+####vol
+main effect
+```{r}
+tau_error_vol = lm((Tauopathy_dr17) ~ #lumi_ab42_dr17
+                     #agegap_vol2*group_multi
+                     #agegap_vol2*control
+                      agegap_vol2#*preclinical
+                     # agegap_vol2*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_vol*group_multi #+Sex + Race + Edu
+                   , data = multiage)
+summary(tau_error_vol)
+etasq(tau_error_vol)
+
+```
+interaction
+```{r}
+tau_error_vol_cdr = lm((Tauopathy_dr17) ~ #lumi_ab42_dr17
+                     #agegap_vol2*group_multi
+                     #agegap_vol2*control
+                      agegap_vol2*Group
+                     # agegap_vol2*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_vol*group_multi #+Sex + Race + Edu
+                   , data = multiage)
+summary(tau_error_vol_cdr)
+etasq(tau_error_vol_cdr)
+
+```
+Plot
+```{r}
+g = ggplot(multiage, aes(y = Tauopathy_dr17, x = agegapreg_vol2))
+g + geom_point(aes(color = Group)) +
+  labs(title="", x = "Residual Vol-BAG", y = "Tau PET (SUVR)") +
+  geom_smooth(aes(color = Group, fill = Group), method = lm) + 
+  geom_smooth(col = 'black', method = lm, linetype = 'dashed') + 
+  scale_color_manual(values = c("blue", "forestgreen", "red")) +
+  scale_fill_manual(values = c("blue", "forestgreen", "red")) +
+  #geom_vline(xintercept = 0, linetype = "longdash") + 
+  #geom_vline(yintercept = 1.42, linetype = "longdash") +
+  #xlim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  #ylim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  theme_bw(base_size = 15) +
+  theme(legend.position='none', plot.title = element_text(hjust = 0.5), legend.title = element_blank(), legend.key = element_blank(), legend.background=element_blank())
+
+ggsave('vol2age_taupet_grouped_harm_220516.png', width = 6, height = 6, units = "in", dpi = 320)
+```
+####multi
+main effect
+```{r}
+tau_error_multi = lm((Tauopathy_dr17) ~ #lumi_ab42_dr17
+                     #agegap_multi*group_multi
+                     #agegap_multi*control
+                      agegap_multi#*preclinical
+                     # agegap_multi*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_multi*group_multi #+Sex + Race + Edu
+                   , data = multiage)
+summary(tau_error_multi)
+etasq(tau_error_multi)
+
+```
+interaction
+```{r}
+tau_error_multi_cdr = lm((Tauopathy_dr17) ~ #lumi_ab42_dr17
+                     #agegap_multi*group_multi
+                     #agegap_multi*control
+                      agegap_multi*Group
+                     # agegap_multi*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_multi*group_multi #+Sex + Race + Edu
+                   , data = multiage)
+summary(tau_error_multi_cdr)
+etasq(tau_error_multi_cdr)
+
+```
+Plot
+```{r}
+g = ggplot(multiage, aes(y = Tauopathy_dr17, x = agegapreg_multi))
+g + geom_point(aes(color = Group)) +
+  labs(title="", x = "Residual Vol+FC-BAG", y = "Tau PET (SUVR)") +
+  geom_smooth(aes(color = Group, fill = Group), method = lm) + 
+  geom_smooth(col = 'black', method = lm, linetype = 'dashed') + 
+  scale_color_manual(values = c("blue", "forestgreen", "red")) +
+  scale_fill_manual(values = c("blue", "forestgreen", "red")) +
+  #geom_vline(xintercept = 0, linetype = "longdash") + 
+  #geom_vline(yintercept = 1.42, linetype = "longdash") +
+  #xlim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  #ylim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  theme_bw(base_size = 15) +
+  theme(legend.position='none', plot.title = element_text(hjust = 0.5), legend.title = element_blank(), legend.key = element_blank(), legend.background=element_blank())
+
+ggsave('multiage_taupet_grouped_harm_220516.png', width = 6, height = 6, units = "in", dpi = 320)
+```
+
+###tau CSF
+####fc
+main effect
+```{r}
+tau_error_fc = lm(log(ptau_ab40_ratio) ~ #lumi_ab42_dr17
+                     #agegap_fc2*group_multi
+                     #agegap_fc2*control
+                      agegap_fc2#*preclinical
+                     # agegap_fc2*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_fc*group_multi #+Sex + Race + Edu
+                   , data = multiage)
+summary(tau_error_fc)
+etasq(tau_error_fc)
+
+```
+interaction
+```{r}
+tau_error_fc_cdr = lm(log(ptau_ab40_ratio) ~ #lumi_ab42_dr17
+                     #agegap_fc2*group_multi
+                     #agegap_fc2*control
+                      agegap_fc2*Group
+                     # agegap_fc2*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_fc*group_multi #+Sex + Race + Edu
+                   , data = multiage)
+summary(tau_error_fc_cdr)
+etasq(tau_error_fc_cdr)
+
+```
+Plot
+```{r}
+multiage$ptau_ab40_ratio_log = log(multiage$ptau_ab40_ratio)
+
+g = ggplot(multiage, aes(y = ptau_ab40_ratio_log, x = agegapreg_fc2))
+g + geom_point(aes(color = Group)) +
+  labs(title="", x = "Residual FC-BAG", y = "CSF pTau/AB40 Ratio (log)") +
+  geom_smooth(aes(color = Group, fill = Group), method = lm) + 
+  geom_smooth(col = 'black', method = lm, linetype = 'dashed') + 
+  scale_color_manual(values = c("blue", "forestgreen", "red")) +
+  scale_fill_manual(values = c("blue", "forestgreen", "red")) +
+  #geom_vline(xintercept = 0, linetype = "longdash") + 
+  #geom_vline(yintercept = 1.42, linetype = "longdash") +
+  #xlim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  #ylim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  theme_bw(base_size = 15) +
+  theme(legend.position=c(.1, .9), plot.title = element_text(hjust = 0.5), legend.title = element_blank(), legend.key = element_blank(), legend.background=element_blank())
+
+ggsave('fc2age_csfptauab40_grouped_harm_220516.png', width = 6, height = 6, units = "in", dpi = 320)
+```
+####vol
+main effect
+```{r}
+tau_error_vol = lm(log(ptau_ab40_ratio) ~ #lumi_ab42_dr17
+                     #agegap_vol2*group_multi
+                     #agegap_vol2*control
+                      agegap_vol2#*preclinical
+                     # agegap_vol2*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_vol*group_multi #+Sex + Race + Edu
+                   , data = multiage)
+summary(tau_error_vol)
+etasq(tau_error_vol)
+
+```
+interaction
+```{r}
+tau_error_vol_cdr = lm(log(ptau_ab40_ratio) ~ #lumi_ab42_dr17
+                     #agegap_vol2*group_multi
+                     #agegap_vol2*control
+                      agegap_vol2*Group
+                     # agegap_vol2*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_vol*group_multi #+Sex + Race + Edu
+                   , data = multiage)
+summary(tau_error_vol_cdr)
+etasq(tau_error_vol_cdr)
+
+```
+Plot
+```{r}
+g = ggplot(multiage, aes(y = ptau_ab40_ratio_log, x = agegapreg_vol2))
+g + geom_point(aes(color = Group)) +
+  labs(title="", x = "Residual Vol-BAG", y = "CSF pTau/AB40 Ratio (log)") +
+  geom_smooth(aes(color = Group, fill = Group), method = lm) + 
+  geom_smooth(col = 'black', method = lm, linetype = 'dashed') + 
+  scale_color_manual(values = c("blue", "forestgreen", "red")) +
+  scale_fill_manual(values = c("blue", "forestgreen", "red")) +
+  #geom_vline(xintercept = 0, linetype = "longdash") + 
+  #geom_vline(yintercept = 1.42, linetype = "longdash") +
+  #xlim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  #ylim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  theme_bw(base_size = 15) +
+  theme(legend.position='none', plot.title = element_text(hjust = 0.5), legend.title = element_blank(), legend.key = element_blank(), legend.background=element_blank())
+
+ggsave('vol2age_csfptauab40_grouped_harm_220516.png', width = 6, height = 6, units = "in", dpi = 320)
+```
+####multi
+main effect
+```{r}
+tau_error_multi = lm(log(ptau_ab40_ratio) ~ #lumi_ab42_dr17
+                     #agegap_multi*group_multi
+                     #agegap_multi*control
+                      agegap_multi#*preclinical
+                     # agegap_multi*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_multi*group_multi #+Sex + Race + Edu
+                   , data = multiage)
+summary(tau_error_multi)
+etasq(tau_error_multi)
+
+```
+interaction
+```{r}
+tau_error_multi_cdr = lm(log(ptau_ab40_ratio) ~ #lumi_ab42_dr17
+                     #agegap_multi*group_multi
+                     #agegap_multi*control
+                      agegap_multi*Group
+                     # agegap_multi*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_multi*group_multi #+Sex + Race + Edu
+                   , data = multiage)
+summary(tau_error_multi_cdr)
+etasq(tau_error_multi_cdr)
+
+```
+Plot
+```{r}
+g = ggplot(multiage, aes(y = ptau_ab40_ratio_log, x = agegapreg_multi))
+g + geom_point(aes(color = Group)) +
+  labs(title="", x = "Residual Vol+FC-BAG", y = "CSF pTau/AB40 Ratio (log)") +
+  geom_smooth(aes(color = Group, fill = Group), method = lm) + 
+  geom_smooth(col = 'black', method = lm, linetype = 'dashed') + 
+  scale_color_manual(values = c("blue", "forestgreen", "red")) +
+  scale_fill_manual(values = c("blue", "forestgreen", "red")) +
+  #geom_vline(xintercept = 0, linetype = "longdash") + 
+  #geom_vline(yintercept = 1.42, linetype = "longdash") +
+  #xlim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  #ylim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  theme_bw(base_size = 15) +
+  theme(legend.position='none', plot.title = element_text(hjust = 0.5), legend.title = element_blank(), legend.key = element_blank(), legend.background=element_blank())
+
+ggsave('multiage_csfptauab40_grouped_harm_220516.png', width = 6, height = 6, units = "in", dpi = 320)
+```
+
+###Hippocampal Volume
+####fc
+main effect
+```{r}
+hcv_error_fc = lm((HippocampusVol_dr16) ~ #lumi_ab42_dr17
+                     #agegap_fc2*group_multi
+                     #agegap_fc2*control
+                      agegap_fc2#*preclinical
+                     # agegap_fc2*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_fc*group_multi #+Sex + Race + Edu
+                   , data = multiage)
+summary(hcv_error_fc)
+etasq(hcv_error_fc)
+
+```
+interaction
+```{r}
+hcv_error_fc_cdr = lm((HippocampusVol_dr16) ~ #lumi_ab42_dr17
+                     #agegap_fc2*group_multi
+                     #agegap_fc2*control
+                      agegap_fc2*Group
+                     # agegap_fc2*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_fc*group_multi #+Sex + Race + Edu
+                   , data = multiage)
+summary(hcv_error_fc_cdr)
+etasq(hcv_error_fc_cdr)
+
+```
+Plot
+```{r}
+g = ggplot(multiage, aes(y = HippocampusVol_dr16, x = agegapreg_fc2))
+g + geom_point(aes(color = Group)) +
+  labs(title="", x = "Residual FC-BAG", y = "Hippocampal Volume (mm^3)") +
+  geom_smooth(aes(color = Group, fill = Group), method = lm) + 
+  geom_smooth(col = 'black', method = lm, linetype = 'dashed') + 
+  scale_color_manual(values = c("blue", "forestgreen", "red")) +
+  scale_fill_manual(values = c("blue", "forestgreen", "red")) +
+  #geom_vline(xintercept = 0, linetype = "longdash") + 
+  #geom_vline(yintercept = 1.42, linetype = "longdash") +
+  #xlim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  #ylim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  theme_bw(base_size = 15) +
+  theme(legend.position=c(.1, .9), plot.title = element_text(hjust = 0.5), legend.title = element_blank(), legend.key = element_blank(), legend.background=element_blank())
+
+ggsave('fc2age_hcv_grouped_harm_220516.png', width = 6, height = 6, units = "in", dpi = 320)
+```
+####vol
+main effect
+```{r}
+hcv_error_vol = lm((HippocampusVol_dr16) ~ #lumi_ab42_dr17
+                     #agegap_vol2*group_multi
+                     #agegap_vol2*control
+                      agegap_vol2#*preclinical
+                     # agegap_vol2*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_vol*group_multi #+Sex + Race + Edu
+                   , data = multiage)
+summary(hcv_error_vol)
+etasq(hcv_error_vol)
+
+```
+interaction
+```{r}
+hcv_error_vol_cdr = lm((HippocampusVol_dr16) ~ #lumi_ab42_dr17
+                     #agegap_vol2*group_multi
+                     #agegap_vol2*control
+                      agegap_vol2*Group
+                     # agegap_vol2*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_vol*group_multi #+Sex + Race + Edu
+                   , data = multiage)
+summary(hcv_error_vol_cdr)
+etasq(hcv_error_vol_cdr)
+
+```
+Plot
+```{r}
+g = ggplot(multiage, aes(y = HippocampusVol_dr16, x = agegapreg_vol2))
+g + geom_point(aes(color = Group)) +
+  labs(title="", x = "Residual Vol-BAG", y = "Hippocampal Volume (mm^3)") +
+  geom_smooth(aes(color = Group, fill = Group), method = lm) + 
+  geom_smooth(col = 'black', method = lm, linetype = 'dashed') + 
+  scale_color_manual(values = c("blue", "forestgreen", "red")) +
+  scale_fill_manual(values = c("blue", "forestgreen", "red")) +
+  #geom_vline(xintercept = 0, linetype = "longdash") + 
+  #geom_vline(yintercept = 1.42, linetype = "longdash") +
+  #xlim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  #ylim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  theme_bw(base_size = 15) +
+  theme(legend.position='none', plot.title = element_text(hjust = 0.5), legend.title = element_blank(), legend.key = element_blank(), legend.background=element_blank())
+
+ggsave('vol2age_hcv_grouped_harm_220516.png', width = 6, height = 6, units = "in", dpi = 320)
+```
+####multi
+main effect
+```{r}
+hcv_error_multi = lm((HippocampusVol_dr16) ~ #lumi_ab42_dr17
+                     #agegap_multi*group_multi
+                     #agegap_multi*control
+                      agegap_multi#*preclinical
+                     # agegap_multi*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_multi*group_multi #+Sex + Race + Edu
+                   , data = multiage)
+summary(hcv_error_multi)
+etasq(hcv_error_multi)
+
+```
+interaction
+```{r}
+hcv_error_multi_cdr = lm((HippocampusVol_dr16) ~ #lumi_ab42_dr17
+                     #agegap_multi*group_multi
+                     #agegap_multi*control
+                      agegap_multi*Group
+                     # agegap_multi*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_multi*group_multi #+Sex + Race + Edu
+                   , data = multiage)
+summary(hcv_error_multi_cdr)
+etasq(hcv_error_multi_cdr)
+
+```
+Plot
+```{r}
+g = ggplot(multiage, aes(y = HippocampusVol_dr16, x = agegapreg_multi))
+g + geom_point(aes(color = Group)) +
+  labs(title="", x = "Residual Vol+FC-BAG", y = "Hippocampal Volume (mm^3)") +
+  geom_smooth(aes(color = Group, fill = Group), method = lm) + 
+  geom_smooth(col = 'black', method = lm, linetype = 'dashed') + 
+  scale_color_manual(values = c("blue", "forestgreen", "red")) +
+  scale_fill_manual(values = c("blue", "forestgreen", "red")) +
+  #geom_vline(xintercept = 0, linetype = "longdash") + 
+  #geom_vline(yintercept = 1.42, linetype = "longdash") +
+  #xlim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  #ylim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  theme_bw(base_size = 15) +
+  theme(legend.position='none', plot.title = element_text(hjust = 0.5), legend.title = element_blank(), legend.key = element_blank(), legend.background=element_blank())
+
+ggsave('multiage_hcv_grouped_harm_220516.png', width = 6, height = 6, units = "in", dpi = 320)
+```
+
+###NfL
+####fc
+main effect
+```{r}
+nfl_error_fc = lm(log(NFL_dr17) ~ #lumi_ab42_dr17
+                     #agegap_fc2*group_multi
+                     #agegap_fc2*control
+                      agegap_fc2#*preclinical
+                     # agegap_fc2*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_fc*group_multi #+Sex + Race + Edu
+                   , data = multiage)
+summary(nfl_error_fc)
+etasq(nfl_error_fc)
+
+```
+interaction
+```{r}
+nfl_error_fc_cdr = lm(log(NFL_dr17) ~ #lumi_ab42_dr17
+                     #agegap_fc2*group_multi
+                     #agegap_fc2*control
+                      agegap_fc2*Group
+                     # agegap_fc2*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_fc*group_multi #+Sex + Race + Edu
+                   , data = multiage)
+summary(nfl_error_fc_cdr)
+etasq(nfl_error_fc_cdr)
+
+```
+Plot
+```{r}
+multiage$NFL_dr17_log = log(multiage$NFL_dr17)
+
+g = ggplot(multiage, aes(y = NFL_dr17_log, x = agegapreg_fc2))
+g + geom_point(aes(color = Group)) +
+  labs(title="", x = "Residual FC-BAG", y = "CSF NfL (pg/mL, log)") +
+  geom_smooth(aes(color = Group, fill = Group), method = lm) + 
+  geom_smooth(col = 'black', method = lm, linetype = 'dashed') + 
+  scale_color_manual(values = c("blue", "forestgreen", "red")) +
+  scale_fill_manual(values = c("blue", "forestgreen", "red")) +
+  #geom_vline(xintercept = 0, linetype = "longdash") + 
+  #geom_vline(yintercept = 1.42, linetype = "longdash") +
+  #xlim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  #ylim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  theme_bw(base_size = 15) +
+  theme(legend.position=c(.1, .9), plot.title = element_text(hjust = 0.5), legend.title = element_blank(), legend.key = element_blank(), legend.background=element_blank())
+
+ggsave('fc2age_nfl_grouped_harm_220516.png', width = 6, height = 6, units = "in", dpi = 320)
+```
+####vol
+main effect
+```{r}
+nfl_error_vol = lm(log(NFL_dr17) ~ #lumi_ab42_dr17
+                     #agegap_vol2*group_multi
+                     #agegap_vol2*control
+                      agegap_vol2#*preclinical
+                     # agegap_vol2*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_vol*group_multi #+Sex + Race + Edu
+                   , data = multiage)
+summary(nfl_error_vol)
+etasq(nfl_error_vol)
+
+```
+interaction
+```{r}
+nfl_error_vol_cdr = lm(log(NFL_dr17) ~ #lumi_ab42_dr17
+                     #agegap_vol2*group_multi
+                     #agegap_vol2*control
+                      agegap_vol2*Group
+                     # agegap_vol2*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_vol*group_multi #+Sex + Race + Edu
+                   , data = multiage)
+summary(nfl_error_vol_cdr)
+etasq(nfl_error_vol_cdr)
+
+```
+Plot
+```{r}
+g = ggplot(multiage, aes(y = NFL_dr17_log, x = agegapreg_vol2))
+g + geom_point(aes(color = Group)) +
+  labs(title="", x = "Residual Vol-BAG", y = "CSF NfL (pg/mL, log)") +
+  geom_smooth(aes(color = Group, fill = Group), method = lm) + 
+  geom_smooth(col = 'black', method = lm, linetype = 'dashed') + 
+  scale_color_manual(values = c("blue", "forestgreen", "red")) +
+  scale_fill_manual(values = c("blue", "forestgreen", "red")) +
+  #geom_vline(xintercept = 0, linetype = "longdash") + 
+  #geom_vline(yintercept = 1.42, linetype = "longdash") +
+  #xlim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  #ylim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  theme_bw(base_size = 15) +
+  theme(legend.position='none', plot.title = element_text(hjust = 0.5), legend.title = element_blank(), legend.key = element_blank(), legend.background=element_blank())
+
+ggsave('vol2age_nfl_grouped_harm_220516.png', width = 6, height = 6, units = "in", dpi = 320)
+```
+####multi
+main effect
+```{r}
+nfl_error_multi = lm(log(NFL_dr17) ~ #lumi_ab42_dr17
+                     #agegap_multi*group_multi
+                     #agegap_multi*control
+                      agegap_multi#*preclinical
+                     # agegap_multi*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_multi*group_multi #+Sex + Race + Edu
+                   , data = multiage)
+summary(nfl_error_multi)
+etasq(nfl_error_multi)
+
+```
+interaction
+```{r}
+nfl_error_multi_cdr = lm(log(NFL_dr17) ~ #lumi_ab42_dr17
+                     #agegap_multi*group_multi
+                     #agegap_multi*control
+                      agegap_multi*Group
+                     # agegap_multi*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_multi*group_multi #+Sex + Race + Edu
+                   , data = multiage)
+summary(nfl_error_multi_cdr)
+etasq(nfl_error_multi_cdr)
+
+```
+Plot
+```{r}
+g = ggplot(multiage, aes(y = NFL_dr17_log, x = agegapreg_multi))
+g + geom_point(aes(color = Group)) +
+  labs(title="", x = "Residual Vol+FC-BAG", y = "CSF NfL (pg/mL, log)") +
+  geom_smooth(aes(color = Group, fill = Group), method = lm) + 
+  geom_smooth(col = 'black', method = lm, linetype = 'dashed') + 
+  scale_color_manual(values = c("blue", "forestgreen", "red")) +
+  scale_fill_manual(values = c("blue", "forestgreen", "red")) +
+  #geom_vline(xintercept = 0, linetype = "longdash") + 
+  #geom_vline(yintercept = 1.42, linetype = "longdash") +
+  #xlim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  #ylim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  theme_bw(base_size = 15) +
+  theme(legend.position='none', plot.title = element_text(hjust = 0.5), legend.title = element_blank(), legend.key = element_blank(), legend.background=element_blank())
+
+ggsave('multiage_nfl_grouped_harm_220516.png', width = 6, height = 6, units = "in", dpi = 320)
+```
+
+###Cognition
+```{r}
+#Global Composite
+#srtfree, Trails A, Trails B, Animals Naming
+multiage$z_global_srt = scale(multiage$global_srt)
+multiage$z_global_animal = scale(multiage$global_animal)
+multiage$z_global_tma = -1*(scale(multiage$global_tma))
+multiage$z_global_tmb = -1*(scale(multiage$global_tmb))
+
+multiage$global_comp <- rowMeans(subset(multiage, select = c(
+  z_global_srt, 
+  z_global_animal, 
+  z_global_tma, 
+  z_global_tmb
+  )), na.rm = TRUE)
+```
+####fc
+main effect
+```{r}
+cog_error_fc = lm((global_comp) ~ #lumi_ab42_dr17
+                     #agegap_fc2*group_multi
+                     #agegap_fc2*control
+                      agegap_fc2#*preclinical
+                     # agegap_fc2*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_fc*group_multi #+Sex + Race + Edu
+                   , data = multiage)
+summary(cog_error_fc)
+etasq(cog_error_fc)
+
+```
+interaction
+```{r}
+cog_error_fc_cdr = lm((global_comp) ~ #lumi_ab42_dr17
+                     #agegap_fc2*group_multi
+                     #agegap_fc2*control
+                      agegap_fc2*Group
+                     # agegap_fc2*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_fc*group_multi #+Sex + Race + Edu
+                   , data = multiage)
+summary(cog_error_fc_cdr)
+etasq(cog_error_fc_cdr)
+
+```
+Plot
+```{r}
+g = ggplot(multiage, aes(y = global_comp, x = agegapreg_fc2))
+g + geom_point(aes(color = Group)) +
+  labs(title="", x = "Residual FC-BAG", y = "Global Cognition (composite)") +
+  geom_smooth(aes(color = Group, fill = Group), method = lm) + 
+  geom_smooth(col = 'black', method = lm, linetype = 'dashed') + 
+  scale_color_manual(values = c("blue", "forestgreen", "red")) +
+  scale_fill_manual(values = c("blue", "forestgreen", "red")) +
+  #geom_vline(xintercept = 0, linetype = "longdash") + 
+  #geom_vline(yintercept = 1.42, linetype = "longdash") +
+  #xlim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  #ylim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  theme_bw(base_size = 15) +
+  theme(legend.position=c(.1, .9), plot.title = element_text(hjust = 0.5), legend.title = element_blank(), legend.key = element_blank(), legend.background=element_blank())
+
+ggsave('fc2age_globalcog_grouped_harm_220516.png', width = 6, height = 6, units = "in", dpi = 320)
+```
+####vol
+main effect
+```{r}
+cog_error_vol = lm((global_comp) ~ #lumi_ab42_dr17
+                     #agegap_vol2*group_multi
+                     #agegap_vol2*control
+                      agegap_vol2#*preclinical
+                     # agegap_vol2*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_vol*group_multi #+Sex + Race + Edu
+                   , data = multiage)
+summary(cog_error_vol)
+etasq(cog_error_vol)
+
+```
+interaction
+```{r}
+cog_error_vol_cdr = lm((global_comp) ~ #lumi_ab42_dr17
+                     #agegap_vol2*group_multi
+                     #agegap_vol2*control
+                      agegap_vol2*Group
+                     # agegap_vol2*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_vol*group_multi #+Sex + Race + Edu
+                   , data = multiage)
+summary(cog_error_vol_cdr)
+etasq(cog_error_vol_cdr)
+
+```
+Plot
+```{r}
+g = ggplot(multiage, aes(y = global_comp, x = agegapreg_vol2))
+g + geom_point(aes(color = Group)) +
+  labs(title="", x = "Residual Vol-BAG", y = "Global Cognition (composite)") +
+  geom_smooth(aes(color = Group, fill = Group), method = lm) + 
+  geom_smooth(col = 'black', method = lm, linetype = 'dashed') + 
+  scale_color_manual(values = c("blue", "forestgreen", "red")) +
+  scale_fill_manual(values = c("blue", "forestgreen", "red")) +
+  #geom_vline(xintercept = 0, linetype = "longdash") + 
+  #geom_vline(yintercept = 1.42, linetype = "longdash") +
+  #xlim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  #ylim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  theme_bw(base_size = 15) +
+  theme(legend.position='none', plot.title = element_text(hjust = 0.5), legend.title = element_blank(), legend.key = element_blank(), legend.background=element_blank())
+
+ggsave('vol2age_globalcog_grouped_harm_220516.png', width = 6, height = 6, units = "in", dpi = 320)
+```
+####multi
+main effect
+```{r}
+cog_error_multi = lm((global_comp) ~ #lumi_ab42_dr17
+                     #agegap_multi*group_multi
+                     #agegap_multi*control
+                      agegap_multi#*preclinical
+                     # agegap_multi*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_multi*group_multi #+Sex + Race + Edu
+                   , data = multiage)
+summary(cog_error_multi)
+etasq(cog_error_multi)
+
+```
+interaction
+```{r}
+cog_error_multi_cdr = lm((global_comp) ~ #lumi_ab42_dr17
+                     #agegap_multi*group_multi
+                     #agegap_multi*control
+                      agegap_multi*Group
+                     # agegap_multi*impaired
+                     #+ HippocampusVol_dr16*group_multi
+                     #+ ADCortSig_thickness_dr16*group_multi
+                     + Age
+                     #+ APOE_Pos
+                     + Sex_f
+                     + Edu 
+                     + Race_w
+                            #error_multi*group_multi #+Sex + Race + Edu
+                   , data = multiage)
+summary(cog_error_multi_cdr)
+etasq(cog_error_multi_cdr)
+
+```
+Plot
+```{r}
+g = ggplot(multiage, aes(y = global_comp, x = agegapreg_multi))
+g + geom_point(aes(color = Group)) +
+  labs(title="", x = "Residual Vol+FC-BAG", y = "Global Cognition (composite)") +
+  geom_smooth(aes(color = Group, fill = Group), method = lm) + 
+  geom_smooth(col = 'black', method = lm, linetype = 'dashed') + 
+  scale_color_manual(values = c("blue", "forestgreen", "red")) +
+  scale_fill_manual(values = c("blue", "forestgreen", "red")) +
+  #geom_vline(xintercept = 0, linetype = "longdash") + 
+  #geom_vline(yintercept = 1.42, linetype = "longdash") +
+  #xlim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  #ylim(min(c(data$Age, yscale)), max(c(data$Age, yscale))) + 
+  theme_bw(base_size = 15) +
+  theme(legend.position='none', plot.title = element_text(hjust = 0.5), legend.title = element_blank(), legend.key = element_blank(), legend.background=element_blank())
+
+ggsave('multiage_globalcog_grouped_harm_220516.png', width = 6, height = 6, units = "in", dpi = 320)
+```
+
+#END
